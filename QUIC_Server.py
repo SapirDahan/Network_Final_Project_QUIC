@@ -1,4 +1,5 @@
 import socket
+import QUIC_api as api
 
 # Server setup
 server_ip = '127.0.0.1'
@@ -10,6 +11,41 @@ sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 sock.bind((server_ip, server_port))
 
 print(f"Server listening on {server_ip}:{server_port}")
+
+# QUIC handshake
+
+while True:
+    data_recv, addr = sock.recvfrom(buffer_size)
+
+    # parse the received data
+    parsed_packet = api.parse_quic_long_header(data_recv)
+    parsed_frame = api.parse_quic_frame(parsed_packet['payload'])
+
+    if parsed_frame['data'].decode() == "ClientHello":
+        print("Received ClientHello.")
+
+        """
+        ---Construct ClientHello frame---
+        frame type 6 is being used for handshake
+        stream id is 0
+        offset is 0
+        data is 'ServerHello'
+        """
+        server_hello_frame = api.construct_quic_frame(6, 0, 0, "ServerHello")
+
+        """
+        ---Construct ClientHello packet---
+        packet type is 0
+        version is 1
+        dcid (destination connection id) is '0001'
+        scid (source connection id) is '0002'
+        payload is client_hello_frame
+        """
+        server_hello_packet = api.construct_quic_long_header(0, 1, '0001', '0002', server_hello_frame)
+        sock.sendto(server_hello_packet.encode(), addr)
+        print("Sent ServerHello.\n")
+        break
+
 
 # Receive initial packet with filename and total packets
 data, addr = sock.recvfrom(buffer_size)

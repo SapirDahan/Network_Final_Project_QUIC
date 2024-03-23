@@ -2,8 +2,8 @@ import random
 import string
 
 # Define the file size in bytes (10MB)
-file_size = 10 * 1024 * 1024
-# file_size = 10 * 1024
+# file_size = 10 * 1024 * 1024
+file_size = 10 * 1024
 
 # Generate random alphanumeric characters
 alphanumeric_characters = string.ascii_letters + string.digits
