@@ -54,7 +54,7 @@ total_packets = int(total_packets)
 print(f"Receiving file: {filename}, total packets: {total_packets}")
 
 # Open file for writing
-with open(filename, 'wb') as f:
+with open('received_'+filename, 'wb') as f:
     for expected_packet in range(1, total_packets + 1):
         # Receive packet
         packet, addr = sock.recvfrom(buffer_size)
