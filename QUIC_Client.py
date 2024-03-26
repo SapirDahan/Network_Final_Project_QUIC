@@ -3,6 +3,16 @@ import os
 
 import QUIC_api as api
 
+# Recovery Algorithms
+packet_number_based = False
+time_based = False
+
+# Packet reordering threshold
+packet_reordering_threshold = 0
+
+# Time threshold
+time_threshold = 0
+
 # Client setup
 server_ip = '127.0.0.1'
 server_port = 9997

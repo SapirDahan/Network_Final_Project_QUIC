@@ -58,10 +58,15 @@ with open('received_'+filename, 'wb') as f:
     for expected_packet in range(1, total_packets + 1):
         # Receive packet
         packet, addr = sock.recvfrom(buffer_size)
-        packet_number = int.from_bytes(packet[:4], byteorder='big')
+        packet_parsed = api.parse_quic_short_header_binary(packet)
+        packet_number = packet_parsed['packet_number']
+        packet_payload = packet_parsed['payload']
+        frame_parsed = api.parse_quic_frame(packet_payload)
+        frame_data = frame_parsed['data']
+        #packet_number = int.from_bytes(packet[:4], byteorder='big')
         if packet_number == expected_packet:
             # Write packet data to file, skipping the 4-byte header
-            f.write(packet[4:])
+            f.write(frame_data)
         else:
             print(f"Packet {packet_number} out of order. Expected {expected_packet}")
 
