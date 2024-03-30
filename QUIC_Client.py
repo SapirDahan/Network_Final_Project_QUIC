@@ -1,6 +1,8 @@
+import select
 import socket
 import os
-
+from collections import deque
+from datetime import datetime
 import QUIC_api as api
 
 # Recovery Algorithms
@@ -64,6 +66,13 @@ print("Total packets: " + str(total_packets))
 initial_packet = f"{filename},{total_packets}".encode()
 sock.sendto(initial_packet, (server_ip, server_port))
 
+# Create a packet deque
+packet_queue = deque()
+
+# Set socket to non-blocking mode
+sock.setblocking(False)
+
+
 # Open file and send in chunks
 with open(filename, 'rb') as f:
     for packet_number in range(1, total_packets + 1):
@@ -77,11 +86,42 @@ with open(filename, 'rb') as f:
         packet = api.construct_quic_short_header_binary(2, packet_number, frame)
         print(f"the length is: {len(packet)}")
 
-        # Prepend packet number as 4-byte header
-        #packet = packet_number.to_bytes(4, byteorder='big') + bytes_read
+        packet_queue.append([packet_number, False, datetime.timestamp(datetime.now())])
 
         # Send packet
         sock.sendto(packet.encode(), (server_ip, server_port))
 
+        # Try to receive ACKs
+        try:
+            while True:
+                ready = select.select([sock], [], [], 0)
+                if ready[0]:
+                    ack, _ = sock.recvfrom(1024)
+                    packet_parsed = api.parse_quic_short_header_binary(ack)
+                    packet_payload = packet_parsed['payload']
+                    frame_parsed = api.parse_quic_frame(packet_payload)
+                    frame_data = frame_parsed['data']
+                    #print(f"Received ack for packet number: {frame_data}")
+
+                    # In deque change for the packet arrive in True
+                    for element in packet_queue:
+                        if element[0] == int(frame_data):  # Packet Number
+                            element[1] = True  # ACK packet arrived
+                            break
+
+                else:
+                    # No more ACKs available, break from the loop
+                    break
+
+        except BlockingIOError:
+            # No data available
+            pass
+
+        # Pop all True elements from the head of the deque until reaching false
+        while packet_queue and packet_queue[0][1]:
+            packet_queue.popleft()
+
+
 print("File sent successfully.")
 sock.close()
+print(packet_queue)

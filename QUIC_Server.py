@@ -53,6 +53,8 @@ filename, total_packets = data.decode().split(',')
 total_packets = int(total_packets)
 print(f"Receiving file: {filename}, total packets: {total_packets}")
 
+ack_packet_number = 1
+
 # Open file for writing
 with open('received_'+filename, 'wb') as f:
     for expected_packet in range(1, total_packets + 1):
@@ -63,12 +65,20 @@ with open('received_'+filename, 'wb') as f:
         packet_payload = packet_parsed['payload']
         frame_parsed = api.parse_quic_frame(packet_payload)
         frame_data = frame_parsed['data']
-        #packet_number = int.from_bytes(packet[:4], byteorder='big')
-        if packet_number == expected_packet:
-            # Write packet data to file, skipping the 4-byte header
-            f.write(frame_data)
-        else:
-            print(f"Packet {packet_number} out of order. Expected {expected_packet}")
+
+        # Creating ACK frame
+        ack_frame = api.construct_quic_frame(2, 0, 0, str(packet_number))
+
+        # Create ACK packet and send to client
+        ack_packet = api.construct_quic_short_header_binary(1, ack_packet_number, ack_frame)
+        sock.sendto(ack_packet.encode(), addr)
+
+
+        # if packet_number == expected_packet:
+        #     # Write packet data to file, skipping the 4-byte header
+        #     f.write(frame_data)
+        # else:
+        #     print(f"Packet {packet_number} out of order. Expected {expected_packet}")
 
 print("File received successfully.")
 sock.close()
