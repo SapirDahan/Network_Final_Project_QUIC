@@ -7,13 +7,13 @@ import QUIC_api as api
 
 # Recovery Algorithms
 packet_number_based = False
-time_based = False
+time_based = True
 
 # Packet reordering threshold
 packet_reordering_threshold = 0
 
 # Time threshold
-time_threshold = 0
+time_threshold = 10
 
 # Client setup
 server_ip = '127.0.0.1'
@@ -84,9 +84,9 @@ with open(filename, 'rb') as f:
 
         # Create QUIC packet
         packet = api.construct_quic_short_header_binary(2, packet_number, frame)
-        print(f"the length is: {len(packet)}")
+        #print(f"packet number {packet_number} sent to server")
 
-        packet_queue.append([packet_number, False, datetime.timestamp(datetime.now())])
+        packet_queue.append([packet_number, False, datetime.timestamp(datetime.now()), packet])
 
         # Send packet
         sock.sendto(packet.encode(), (server_ip, server_port))
@@ -121,7 +121,20 @@ with open(filename, 'rb') as f:
         while packet_queue and packet_queue[0][1]:
             packet_queue.popleft()
 
+        if time_based:
+            # Make a deep copy for packet_queue
+            packet_queue_copy = packet_queue.copy()
+            for element in packet_queue_copy:
+                if datetime.timestamp(datetime.now()) - element[2] > time_threshold and not element[1]:
+                    packet_queue.remove(element)
+                    element[2] = datetime.timestamp(datetime.now())
+                    packet_queue.append(element)
+                    print(f"Packet {element[0]} ack timeout")
+                    sock.sendto(element[3].encode(), (server_ip, server_port))
 
 print("File sent successfully.")
 sock.close()
-print(packet_queue)
+
+# print the deque without the frame
+for packet in packet_queue:
+    print(packet[:3])
