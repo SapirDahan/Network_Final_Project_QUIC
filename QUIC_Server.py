@@ -4,7 +4,7 @@ import QUIC_api as api
 # Server setup
 server_ip = '127.0.0.1'
 server_port = 9997
-buffer_size = 1024
+buffer_size = 2048
 
 # Create UDP socket
 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)

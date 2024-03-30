@@ -6,19 +6,19 @@ from datetime import datetime
 import QUIC_api as api
 
 # Recovery Algorithms
-packet_number_based = False
+packet_number_based = True
 time_based = True
 
 # Packet reordering threshold
-packet_reordering_threshold = 0
+packet_reordering_threshold = 10
 
 # Time threshold
-time_threshold = 10
+time_threshold = 0.1
 
 # Client setup
 server_ip = '127.0.0.1'
 server_port = 9997
-buffer_size = 803  # 1024 - 221: packet size minus header size
+buffer_size = 1827  # 2048 - 221: packet size minus header size
 
 # Create UDP socket
 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -131,6 +131,56 @@ with open(filename, 'rb') as f:
                     packet_queue.append(element)
                     print(f"Packet {element[0]} ack timeout")
                     sock.sendto(element[3].encode(), (server_ip, server_port))
+
+        last_ack = 0
+        i = 0
+        if packet_number_based:
+            for element in reversed(packet_queue):
+                if element[1]:
+                    last_ack = len(packet_queue) - i - 1
+                    break
+                i += 1
+
+            for i in range(0, last_ack - packet_reordering_threshold):
+                if packet_queue[0][1]:
+                    packet_queue.popleft()
+                else:
+                    packet_queue[0][2] = datetime.timestamp(datetime.now())
+                    packet_queue.append(packet_queue[0])
+                    sock.sendto(packet_queue[0][3].encode(), (server_ip, server_port))
+                    packet_queue.popleft()
+
+while len(packet_queue) > 0:
+    ready = select.select([sock], [], [], 0)
+
+    #print("ready")
+    if ready[0]:
+        ack, _ = sock.recvfrom(1024)
+        packet_parsed = api.parse_quic_short_header_binary(ack)
+        packet_payload = packet_parsed['payload']
+        frame_parsed = api.parse_quic_frame(packet_payload)
+        frame_data = frame_parsed['data']
+
+        # In deque change for the packet arrive in True
+        for element in packet_queue:
+            if element[0] == int(frame_data):  # Packet Number
+                element[1] = True  # ACK packet arrived
+                break
+
+        # Make a deep copy for packet_queue
+        packet_queue_copy = packet_queue.copy()
+        for element in packet_queue_copy:
+            if datetime.timestamp(datetime.now()) - element[2] > time_threshold and not element[1]:
+                packet_queue.remove(element)
+                element[2] = datetime.timestamp(datetime.now())
+                packet_queue.append(element)
+                sock.sendto(element[3].encode(), (server_ip, server_port))
+
+            # Pop all True elements from the head of the deque until reaching false
+            while packet_queue and packet_queue[0][1]:
+                packet_queue.popleft()
+
+
 
 print("File sent successfully.")
 sock.close()
