@@ -20,6 +20,9 @@ server_ip = '127.0.0.1'
 server_port = 9997
 buffer_size = 1827  # 2048 - 221: packet size minus header size
 
+# Record start time
+start_time = datetime.timestamp(datetime.now())
+
 # Create UDP socket
 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
@@ -63,8 +66,8 @@ total_packets = (filesize // buffer_size) + (1 if filesize % buffer_size else 0)
 print("Total packets: " + str(total_packets))
 
 # Send initial packet with filename and total packets
-initial_packet = f"{filename},{total_packets}".encode()
-sock.sendto(initial_packet, (server_ip, server_port))
+# initial_packet = f"{filename},{total_packets}".encode()
+# sock.sendto(initial_packet, (server_ip, server_port))
 
 # Create a packet deque
 packet_queue = deque()
@@ -96,7 +99,7 @@ with open(filename, 'rb') as f:
             while True:
                 ready = select.select([sock], [], [], 0)
                 if ready[0]:
-                    ack, _ = sock.recvfrom(1024)
+                    ack, _ = sock.recvfrom(2048)
                     packet_parsed = api.parse_quic_short_header_binary(ack)
                     packet_payload = packet_parsed['payload']
                     frame_parsed = api.parse_quic_frame(packet_payload)
@@ -152,10 +155,8 @@ with open(filename, 'rb') as f:
 
 while len(packet_queue) > 0:
     ready = select.select([sock], [], [], 0)
-
-    #print("ready")
     if ready[0]:
-        ack, _ = sock.recvfrom(1024)
+        ack, _ = sock.recvfrom(2048)
         packet_parsed = api.parse_quic_short_header_binary(ack)
         packet_payload = packet_parsed['payload']
         frame_parsed = api.parse_quic_frame(packet_payload)
@@ -183,8 +184,68 @@ while len(packet_queue) > 0:
 
 
 print("File sent successfully.")
+
+# Send CONNECTION_CLOSE massage to the server
+
+"""
+---Construct CONNECTION_CLOSE frame---
+frame type 0x1c is being used for connection close
+stream id is 0
+offset is 0
+data is 'CONNECTION_CLOSE'
+"""
+connection_close_frame = api.construct_quic_frame(0x1c, 0, 0, "CONNECTION_CLOSE")
+
+"""
+---Construct CONNECTION_CLOSE packet---
+dcid is 2 (server)
+The number packet is total_packets + 1
+The frame is connection_close_frame
+"""
+connection_close_packet = api.construct_quic_short_header_binary(2, total_packets + 1, connection_close_frame)
+
+sock.sendto(connection_close_packet.encode(), (server_ip, server_port))
+
+print("Sending CONNECTION_CLOSE frame to server.")
+
+try:
+    while True:
+        ready = select.select([sock], [], [], 0)
+        if ready[0]:
+
+            data_recv, addr = sock.recvfrom(buffer_size)
+
+            # parse the received data
+            parsed_packet = api.parse_quic_short_header_binary(data_recv)
+            parsed_frame = api.parse_quic_frame(parsed_packet['payload'])
+            if parsed_frame['frame_type'] == 0x1c:
+                print("Received CONNECTION_CLOSE from the server.")
+                break
+
+except BlockingIOError:
+    # No data available
+    pass
+
+
 sock.close()
 
-# print the deque without the frame
-for packet in packet_queue:
-    print(packet[:3])
+print("Connection closed.\n")
+
+# Record end time
+end_time = datetime.timestamp(datetime.now())
+
+total_time = end_time - start_time
+print(f"Total time is: {total_time:.6f} seconds")
+
+# Open the text file in read mode
+with open('alphanumeric_file.txt', 'r') as file:
+    # Get the size of the file
+    file.seek(0, os.SEEK_END)
+    file_size = file.tell()
+    file.seek(0)
+    print("File Size:", file_size, "bytes")
+    bandwidth = file_size/total_time/8/1024/1024
+    print(f"Bandwidth: {bandwidth:.3f} MB/s")
+
+
+
