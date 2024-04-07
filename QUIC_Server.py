@@ -53,7 +53,7 @@ while True:
 
 # Main Loop
 ack_packet_number = 1
-timeout = 2
+timeout = 10
 timeout_flag = False
 # Set time out for the server socket. If no packet received in "timeout" seconds then we close the connection
 sock.settimeout(timeout)

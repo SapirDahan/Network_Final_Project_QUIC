@@ -4,10 +4,11 @@ import os
 from collections import deque
 from datetime import datetime
 import QUIC_api as api
+from tqdm import tqdm
 
 # Recovery Algorithms
 packet_number_based = True
-time_based = True
+time_based = False
 
 # Packet reordering threshold
 packet_reordering_threshold = 10
@@ -93,6 +94,8 @@ retransmit_counter = 0
 # Open file and send in chunks
 with open(filename, 'rb') as f:
     for packet_number in range(1, total_packets + 1):
+        #print(len(packet_queue))
+
         # Read file chunk
         bytes_read = f.read(buffer_size)
 
