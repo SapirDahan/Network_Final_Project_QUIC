@@ -7,8 +7,8 @@ import QUIC_api as api
 from tqdm import tqdm
 
 # Recovery Algorithms
-packet_number_based = True
-time_based = False
+packet_number_based = False
+time_based = True
 
 # Packet reordering threshold
 packet_reordering_threshold = 10
@@ -83,6 +83,7 @@ total_packets = (filesize // buffer_size) + (1 if filesize % buffer_size else 0)
 # sock.sendto(initial_packet, (server_ip, server_port))
 
 # Create a packet deque
+# Element format: [ packet_number , is_ACKed , send_time , packet ]
 packet_queue = deque()
 
 # Set socket to non-blocking mode
@@ -150,7 +151,7 @@ with open(filename, 'rb') as f:
             # Make a deep copy for packet_queue
             packet_queue_copy = packet_queue.copy()
             for element in packet_queue_copy:
-                if datetime.timestamp(datetime.now()) - element[2] > time_threshold and not element[1]:
+                if datetime.timestamp(datetime.now()) - element[2] > time_threshold and not element[1]: # TODO: instead of datetime.now() save the time of the ACK
                     packet_queue.remove(element)
                     element[2] = datetime.timestamp(datetime.now())
                     packet_queue.append(element)
@@ -177,32 +178,72 @@ with open(filename, 'rb') as f:
                     retransmit_counter += 1
                     packet_queue.popleft()
 
+print(f"length of queue: {len(packet_queue)}")
 while len(packet_queue) > 0:
-    ready = select.select([sock], [], [], 0)
-    if ready[0]:
-        ack, _ = sock.recvfrom(2048)
-        packet_parsed = api.parse_quic_short_header_binary(ack)
-        packet_payload = packet_parsed['payload']
-        frame_parsed = api.parse_quic_frame(packet_payload)
-        frame_data = frame_parsed['data']
+    # Try to receive ACKs
+    try:
+        while True:
+            ready = select.select([sock], [], [], 0)
+            if ready[0]:
+                ack, _ = sock.recvfrom(2048)
 
-        # In deque change for the packet arrive in True
-        for element in packet_queue:
-            if element[0] == int(frame_data):  # Packet Number
-                element[1] = True  # ACK packet arrived
+                # Avoid parsing long headers
+                if ack[0] == ord('1'):
+                    continue
+
+                packet_parsed = api.parse_quic_short_header_binary(ack)
+                packet_payload = packet_parsed['payload']
+                frame_parsed = api.parse_quic_frame(packet_payload)
+                frame_data = frame_parsed['data']
+                #print(f"Received ack for packet number: {frame_data}")
+
+                # In deque change for the packet arrive in True
+                for element in packet_queue:
+                    if element[0] == int(frame_data):  # Packet Number
+                        element[1] = True  # ACK packet arrived
+                        break
+
+            else:
+                # No more ACKs available, break from the loop
                 break
 
+    except BlockingIOError:
+        # No data available
+        pass
+
+    # Pop all True elements from the head of the deque until reaching false
+    while packet_queue and packet_queue[0][1]:
+        packet_queue.popleft()
+
+    if time_based or len(packet_queue) < packet_reordering_threshold:
         # Make a deep copy for packet_queue
         packet_queue_copy = packet_queue.copy()
         for element in packet_queue_copy:
-            if datetime.timestamp(datetime.now()) - element[2] > time_threshold and not element[1]:
+            if datetime.timestamp(datetime.now()) - element[2] > time_threshold and not element[1]: # TODO: instead of datetime.now() save the time of the ACK
                 packet_queue.remove(element)
                 element[2] = datetime.timestamp(datetime.now())
                 packet_queue.append(element)
+                #print(f"Packet {element[0]} ack timeout")
                 sock.sendto(element[3].encode(), (server_ip, server_port))
+                retransmit_counter += 1
 
-            # Pop all True elements from the head of the deque until reaching false
-            while packet_queue and packet_queue[0][1]:
+    last_ack = 0
+    i = 0
+    if packet_number_based:
+        for element in reversed(packet_queue):
+            if element[1]:
+                last_ack = len(packet_queue) - i - 1
+                break
+            i += 1
+
+        for i in range(0, last_ack - packet_reordering_threshold):
+            if packet_queue[0][1]:
+                packet_queue.popleft()
+            else:
+                packet_queue[0][2] = datetime.timestamp(datetime.now())
+                packet_queue.append(packet_queue[0])
+                sock.sendto(packet_queue[0][3].encode(), (server_ip, server_port))
+                retransmit_counter += 1
                 packet_queue.popleft()
 
 
