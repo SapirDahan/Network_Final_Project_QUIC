@@ -4,6 +4,7 @@ import os
 from collections import deque
 from datetime import datetime
 import QUIC_api as api
+import copy
 from tqdm import tqdm
 
 # Recovery Algorithms
@@ -20,6 +21,10 @@ time_threshold = 0.1
 server_ip = '127.0.0.1'
 server_port = 9997
 buffer_size = 1827  # 2048 - 221: packet size minus header size
+
+# CIDs
+client_CID = 1
+server_CID = 2
 
 # Record start time
 start_time = datetime.timestamp(datetime.now())
@@ -73,7 +78,6 @@ while True:
 # Cancel socket timeout for normal UDP operation
 sock.settimeout(None)
 
-
 filename = "alphanumeric_file.txt"
 filesize = os.path.getsize(filename)
 total_packets = (filesize // buffer_size) + (1 if filesize % buffer_size else 0)
@@ -95,7 +99,7 @@ retransmit_counter = 0
 # Open file and send in chunks
 with open(filename, 'rb') as f:
     for packet_number in range(1, total_packets + 1):
-        #print(len(packet_queue))
+        # print(len(packet_queue))
 
         # Read file chunk
         bytes_read = f.read(buffer_size)
@@ -105,12 +109,13 @@ with open(filename, 'rb') as f:
 
         # Create QUIC packet
         packet = api.construct_quic_short_header_binary(2, packet_number, frame)
-        #print(f"packet number {packet_number} sent to server")
+        # print(f"packet number {packet_number} sent to server")
 
         packet_queue.append([packet_number, False, datetime.timestamp(datetime.now()), packet])
 
         # Send packet
         sock.sendto(packet.encode(), (server_ip, server_port))
+        last_ack_time = -1
 
         # Try to receive ACKs
         try:
@@ -118,6 +123,7 @@ with open(filename, 'rb') as f:
                 ready = select.select([sock], [], [], 0)
                 if ready[0]:
                     ack, _ = sock.recvfrom(2048)
+                    last_ack_time = datetime.timestamp(datetime.now())
 
                     # Avoid parsing long headers
                     if ack[0] == ord('1'):
@@ -127,7 +133,7 @@ with open(filename, 'rb') as f:
                     packet_payload = packet_parsed['payload']
                     frame_parsed = api.parse_quic_frame(packet_payload)
                     frame_data = frame_parsed['data']
-                    #print(f"Received ack for packet number: {frame_data}")
+                    # print(f"Received ack for packet number: {frame_data}")
 
                     # In deque change for the packet arrive in True
                     for element in packet_queue:
@@ -149,13 +155,13 @@ with open(filename, 'rb') as f:
 
         if time_based:
             # Make a deep copy for packet_queue
-            packet_queue_copy = packet_queue.copy()
+            packet_queue_copy = copy.deepcopy(packet_queue)
             for element in packet_queue_copy:
-                if datetime.timestamp(datetime.now()) - element[2] > time_threshold and not element[1]: # TODO: instead of datetime.now() save the time of the ACK
+                if last_ack_time - element[2] > time_threshold and not element[1]:
                     packet_queue.remove(element)
                     element[2] = datetime.timestamp(datetime.now())
                     packet_queue.append(element)
-                    #print(f"Packet {element[0]} ack timeout")
+                    # print(f"Packet {element[0]} ack timeout")
                     sock.sendto(element[3].encode(), (server_ip, server_port))
                     retransmit_counter += 1
 
@@ -180,12 +186,14 @@ with open(filename, 'rb') as f:
 
 print(f"length of queue: {len(packet_queue)}")
 while len(packet_queue) > 0:
+    last_ack_time = datetime.timestamp(datetime.now())
     # Try to receive ACKs
     try:
         while True:
             ready = select.select([sock], [], [], 0)
             if ready[0]:
                 ack, _ = sock.recvfrom(2048)
+                last_ack_time = datetime.timestamp(datetime.now())
 
                 # Avoid parsing long headers
                 if ack[0] == ord('1'):
@@ -195,7 +203,7 @@ while len(packet_queue) > 0:
                 packet_payload = packet_parsed['payload']
                 frame_parsed = api.parse_quic_frame(packet_payload)
                 frame_data = frame_parsed['data']
-                #print(f"Received ack for packet number: {frame_data}")
+                # print(f"Received ack for packet number: {frame_data}")
 
                 # In deque change for the packet arrive in True
                 for element in packet_queue:
@@ -215,15 +223,15 @@ while len(packet_queue) > 0:
     while packet_queue and packet_queue[0][1]:
         packet_queue.popleft()
 
-    if time_based or len(packet_queue) < packet_reordering_threshold:
+    if time_based:
         # Make a deep copy for packet_queue
-        packet_queue_copy = packet_queue.copy()
+        packet_queue_copy = copy.deepcopy(packet_queue)
         for element in packet_queue_copy:
-            if datetime.timestamp(datetime.now()) - element[2] > time_threshold and not element[1]: # TODO: instead of datetime.now() save the time of the ACK
+            if last_ack_time - element[2] > time_threshold and not element[1]:
                 packet_queue.remove(element)
                 element[2] = datetime.timestamp(datetime.now())
                 packet_queue.append(element)
-                #print(f"Packet {element[0]} ack timeout")
+                # print(f"Packet {element[0]} ack timeout")
                 sock.sendto(element[3].encode(), (server_ip, server_port))
                 retransmit_counter += 1
 
@@ -245,8 +253,6 @@ while len(packet_queue) > 0:
                 sock.sendto(packet_queue[0][3].encode(), (server_ip, server_port))
                 retransmit_counter += 1
                 packet_queue.popleft()
-
-
 
 print("File sent successfully.")
 
@@ -273,7 +279,6 @@ sock.sendto(connection_close_packet.encode(), (server_ip, server_port))
 
 print("Sending CONNECTION_CLOSE frame to server.")
 
-
 try:
     while True:
         ready = select.select([sock], [], [], time_threshold)
@@ -294,7 +299,6 @@ except BlockingIOError:
     # No data available
     pass
 
-
 sock.close()
 
 print("Connection closed.\n")
@@ -314,7 +318,7 @@ with open('alphanumeric_file.txt', 'r') as file:
     file_size = file.tell()
     file.seek(0)
     print("File Size:", file_size, "bytes")
-    bandwidth = file_size/total_time/8/1024/1024
+    bandwidth = file_size / total_time / 8 / 1024 / 1024
     print(f"Bandwidth: {bandwidth:.3f} MB/s\n")
 
 print(f"Unique packets: {total_packets}")
