@@ -6,6 +6,13 @@ server_ip = '127.0.0.1'
 server_port = 9997
 buffer_size = 2048
 
+# CIDs
+server_CID = 2
+client_CID = None  # receive client_CID at handshake
+
+# Timeout for the server to wait for retransmission before continuing
+retransmission_timeout = 0.05
+
 # Create UDP socket
 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 sock.bind((server_ip, server_port))
@@ -15,18 +22,23 @@ print(f"Server listening on {server_ip}:{server_port}")
 # QUIC handshake
 
 while True:
-    data_recv, addr = sock.recvfrom(buffer_size)
+
+    try:
+        data_recv, addr = sock.recvfrom(buffer_size)
+    except BlockingIOError:
+        continue
 
     # Checking if short header (not handshake packet) due to client hello packet loss
     if data_recv[0] == ord('0'):
         break
 
-    # parse the received data
+    # Parse the received data
     parsed_packet = api.parse_quic_long_header(data_recv)
+    client_CID = int(parsed_packet['scid'])
     parsed_frame = api.parse_quic_frame(parsed_packet['payload'])
 
     if parsed_frame['data'].decode() == "ClientHello":
-        print("Received ClientHello.")
+        print(f"Received ClientHello from CID: {client_CID}.")
 
         """
         ---Construct ClientHello frame---
@@ -45,11 +57,29 @@ while True:
         scid (source connection id) is '0002'
         payload is client_hello_frame
         """
-        server_hello_packet = api.construct_quic_long_header(0, 1, '0001', '0002', server_hello_frame)
+        server_hello_packet = api.construct_quic_long_header(0, 1, client_CID, server_CID, server_hello_frame)
         sock.sendto(server_hello_packet.encode(), addr)
         print("Sent ServerHello.\n")
+
+        # Set timeout for receiving ClientHello again
+        sock.settimeout(retransmission_timeout)
+        try:
+            while True:
+                data_recv, addr = sock.recvfrom(buffer_size)
+
+                # Checking if the received packet is ClientHello
+                if data_recv[0] == ord('0'):
+                    sock.settimeout(0)
+                    break
+
+        except socket.timeout:
+            print("ServerHello timeout. Waiting for retransmission of ClientHello...")
+            sock.settimeout(0)
+            continue
+
         break
 
+print("Handshake completed.")
 
 # Main Loop
 ack_packet_number = 1
@@ -85,7 +115,7 @@ while True:
         ack_frame = api.construct_quic_frame(2, 0, 0, str(packet_number))
 
         # Create ACK packet and send to client
-        ack_packet = api.construct_quic_short_header_binary(1, ack_packet_number, ack_frame)
+        ack_packet = api.construct_quic_short_header_binary(client_CID, ack_packet_number, ack_frame)
         ack_packet_number += 1
         sock.sendto(ack_packet.encode(), addr)
 
@@ -107,7 +137,7 @@ if not timeout_flag:
     The number packet is 0
     The frame is connection_close_frame
     """
-    connection_close_packet = api.construct_quic_short_header_binary(1, 0, connection_close_frame)
+    connection_close_packet = api.construct_quic_short_header_binary(client_CID, 0, connection_close_frame)
     # a = api.parse_quic_short_header_binary(connection_close_packet)
     # b = api.parse_quic_frame(a['payload'])
     # print(b['data'])
@@ -119,4 +149,3 @@ print(f"Sent {ack_packet_number - 1} ack packets to client.")
 sock.close()
 
 print("Connection closed")
-

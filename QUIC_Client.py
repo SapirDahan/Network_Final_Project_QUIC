@@ -8,7 +8,7 @@ import copy
 from tqdm import tqdm
 
 # Recovery Algorithms
-packet_number_based = False
+packet_number_based = True
 time_based = True
 
 # Packet reordering threshold
@@ -25,6 +25,9 @@ buffer_size = 1827  # 2048 - 221: packet size minus header size
 # CIDs
 client_CID = 1
 server_CID = 2
+
+# Re-transition counter
+retransmit_counter = 0
 
 # Record start time
 start_time = datetime.timestamp(datetime.now())
@@ -51,7 +54,7 @@ dcid (destination connection id) is '0002'
 scid (source connection id) is '0001'
 payload is client_hello_frame
 """
-client_hello_packet = api.construct_quic_long_header(0, 1, '0002', '0001', client_hello_frame)
+client_hello_packet = api.construct_quic_long_header(0, 1, server_CID, client_CID, client_hello_frame)
 sock.sendto(client_hello_packet.encode(), (server_ip, server_port))
 print("Sent ClientHello.")
 
@@ -62,9 +65,12 @@ while True:
 
     try:
         data_recv, addr = sock.recvfrom(buffer_size)
-    except socket.timeout:
+    except socket.timeout:  # On timeout, resend the handshake packet
         print("ServerHello timeout.")
-        break
+        sock.sendto(client_hello_packet.encode(), (server_ip, server_port))
+        retransmit_counter += 1
+        print("Sent ClientHello.")
+        continue
     except BlockingIOError:
         continue
 
@@ -93,9 +99,6 @@ packet_queue = deque()
 # Set socket to non-blocking mode
 sock.setblocking(False)
 
-# Re-transition counter
-retransmit_counter = 0
-
 # Open file and send in chunks
 with open(filename, 'rb') as f:
     for packet_number in range(1, total_packets + 1):
@@ -108,7 +111,7 @@ with open(filename, 'rb') as f:
         frame = api.construct_quic_frame(8, 0, 0, bytes_read)
 
         # Create QUIC packet
-        packet = api.construct_quic_short_header_binary(2, packet_number, frame)
+        packet = api.construct_quic_short_header_binary(server_CID, packet_number, frame)
         # print(f"packet number {packet_number} sent to server")
 
         packet_queue.append([packet_number, False, datetime.timestamp(datetime.now()), packet])
@@ -273,7 +276,7 @@ dcid is 2 (server)
 The number packet is total_packets + 1
 The frame is connection_close_frame
 """
-connection_close_packet = api.construct_quic_short_header_binary(2, total_packets + 1, connection_close_frame)
+connection_close_packet = api.construct_quic_short_header_binary(server_CID, total_packets + 1, connection_close_frame)
 
 sock.sendto(connection_close_packet.encode(), (server_ip, server_port))
 
@@ -317,9 +320,9 @@ with open('alphanumeric_file.txt', 'r') as file:
     file.seek(0, os.SEEK_END)
     file_size = file.tell()
     file.seek(0)
-    print("File Size:", file_size, "bytes")
-    bandwidth = file_size / total_time / 8 / 1024 / 1024
-    print(f"Bandwidth: {bandwidth:.3f} MB/s\n")
 
+print("File Size:", file_size, "bytes")
+bandwidth = file_size / total_time / 8 / 1024 / 1024
+print(f"Bandwidth: {bandwidth:.3f} MB/s\n")
 print(f"Unique packets: {total_packets}")
 print(f"Re-transmitted packets: {retransmit_counter}")

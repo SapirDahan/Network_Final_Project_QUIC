@@ -1,7 +1,15 @@
-def construct_quic_long_header(packet_type, version, dcid, scid, payload):
+def construct_quic_long_header(packet_type, version, dcid_num, scid_num, payload):
     """
     Constructs a simplified QUIC long header from string inputs.
     Note: In real implementations, these would be binary operations.
+
+    Parameters:
+    - packet_type: the type of the packet
+    - version: the QUIC version this packet is in
+    - dcid_num: the destination connection ID as an integer
+    - scid_num: the source connection ID as an integer
+    - payload: the frame or frames that are sent with the packet
+
     """
     # Header Form (1 bit) + Fixed Bit (1 bit) + Long Packet Type (2 bits) + Reserved Bits (2 bits) + Packet Number Length (2 bits)
     # Here, we use a simple string representation for these fields.
@@ -9,6 +17,10 @@ def construct_quic_long_header(packet_type, version, dcid, scid, payload):
 
     # Version (32 bits)
     version_str = format(version, '032b')
+
+    # Convert numerical connection IDs to string representation with leading zeros
+    dcid = format(int(dcid_num), '032b')
+    scid = format(int(scid_num), '032b')
 
     # Connection ID Lengths and IDs
     dcid_length = format(len(dcid), '08b')
@@ -188,4 +200,3 @@ def parse_quic_frame(frame_binary):
     }
 
     return parsed_frame
-
