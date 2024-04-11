@@ -200,3 +200,57 @@ def parse_quic_frame(frame_binary):
     }
 
     return parsed_frame
+
+def send_hello_packet(socket, streamID, dcid, scid, side, address):
+    """
+    Sends an hello packet with a single frame.
+
+    Parameters:
+    - socket: The socket used for sending the packet.
+    - streamID: The ID of the stream the packet is being sent on.
+    - dcid: Destination CID as an integer.
+    - scid: Source CID as an integer.
+    - side: A string represnting the side of the connection: 'Server' or 'Client'.
+    - address: (destination IP , destination port)
+    """
+
+    """
+    ---Construct ClientHello frame---
+    frame type 6 is being used for handshake
+    offset is 0
+    """
+    hello_frame = construct_quic_frame(6, streamID, 0, side + "Hello")
+
+    """
+    ---Construct ClientHello packet---
+    packet type is 0
+    version is 1
+    payload is client_hello_frame
+    """
+    hello_packet = construct_quic_long_header(0, 1, dcid, scid, hello_frame)
+    socket.sendto(hello_packet.encode(), address)
+
+def send_connection_close_packet(socket, streamID, dcid, packet_number, address):
+    """
+    Sends an hello packet with a single frame.
+
+    Parameters:
+    - socket: The socket used for sending the packet.
+    - streamID: The ID of the stream the packet is being sent on.
+    - dcid: Destination CID as an integer.
+    - address: (destination IP , destination port)
+    """
+
+    """
+    ---Construct CONNECTION_CLOSE frame---
+    frame type 0x1c is being used for connection close
+    offset is 0
+    data is 'CONNECTION_CLOSE'
+    """
+    connection_close_frame = construct_quic_frame(0x1c, streamID, 0, "CONNECTION_CLOSE")
+
+
+    # ---Construct CONNECTION_CLOSE packet---
+    connection_close_packet = construct_quic_short_header_binary(dcid, packet_number, connection_close_frame)
+
+    socket.sendto(connection_close_packet.encode(), address)

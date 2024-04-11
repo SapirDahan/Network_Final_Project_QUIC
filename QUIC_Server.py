@@ -39,26 +39,7 @@ while True:
 
     if parsed_frame['data'].decode() == "ClientHello":
         print(f"Received ClientHello from CID: {client_CID}.")
-
-        """
-        ---Construct ClientHello frame---
-        frame type 6 is being used for handshake
-        stream id is 0
-        offset is 0
-        data is 'ServerHello'
-        """
-        server_hello_frame = api.construct_quic_frame(6, 0, 0, "ServerHello")
-
-        """
-        ---Construct ClientHello packet---
-        packet type is 0
-        version is 1
-        dcid (destination connection id) is '0001'
-        scid (source connection id) is '0002'
-        payload is client_hello_frame
-        """
-        server_hello_packet = api.construct_quic_long_header(0, 1, client_CID, server_CID, server_hello_frame)
-        sock.sendto(server_hello_packet.encode(), addr)
+        api.send_hello_packet(socket=sock, streamID=0, dcid=client_CID, scid=server_CID, side='Server', address=addr)
         print("Sent ServerHello.\n")
 
         # Set timeout for receiving ClientHello again
@@ -69,12 +50,12 @@ while True:
 
                 # Checking if the received packet is ClientHello
                 if data_recv[0] == ord('0'):
-                    sock.settimeout(0)
+                    sock.settimeout(None)
                     break
 
         except socket.timeout:
             print("ServerHello timeout. Waiting for retransmission of ClientHello...")
-            sock.settimeout(0)
+            sock.settimeout(None)
             continue
 
         break
@@ -121,27 +102,7 @@ while True:
 
 
 if not timeout_flag:
-    # Send CONNECTION_CLOSE massage to the client
-    """
-    ---Construct CONNECTION_CLOSE frame---
-    frame type 0x1c is being used for connection close
-    stream id is 0
-    offset is 0
-    data is 'CONNECTION_CLOSE'
-    """
-    connection_close_frame = api.construct_quic_frame(0x1c, 0, 0, "CONNECTION_CLOSE")
-
-    """
-    ---Construct CONNECTION_CLOSE packet---
-    dcid is 1 (client)
-    The number packet is 0
-    The frame is connection_close_frame
-    """
-    connection_close_packet = api.construct_quic_short_header_binary(client_CID, 0, connection_close_frame)
-    # a = api.parse_quic_short_header_binary(connection_close_packet)
-    # b = api.parse_quic_frame(a['payload'])
-    # print(b['data'])
-    sock.sendto(connection_close_packet.encode(), addr)
+    api.send_connection_close_packet(socket=sock, streamID=0, dcid=client_CID, packet_number=0, address=addr)
 
 # Generate statistics
 print(f"Sent {ack_packet_number - 1} ack packets to client.")

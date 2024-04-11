@@ -9,12 +9,10 @@ from tqdm import tqdm
 
 # Recovery Algorithms
 packet_number_based = True
-time_based = True
+time_based = False
 
-# Packet reordering threshold
+# Thresholds for recovery algorithms
 packet_reordering_threshold = 10
-
-# Time threshold
 time_threshold = 0.1
 
 # Client setup
@@ -35,161 +33,46 @@ start_time = datetime.timestamp(datetime.now())
 # Create UDP socket
 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
-# QUIC handshake
+def time_based_recovery(packet_queue, last_ack_time):
+    # Make a deep copy for packet_queue
+    packet_queue_copy = copy.deepcopy(packet_queue)
+    counter = 0
+    for element in packet_queue_copy:
+        if last_ack_time - element[2] > time_threshold and not element[1]:
+            packet_queue.remove(element)
+            element[2] = datetime.timestamp(datetime.now())
+            packet_queue.append(element)
+            sock.sendto(element[3].encode(), (server_ip, server_port))
+            counter += 1
+    return counter
 
-"""
----Construct ClientHello frame---
-frame type 6 is being used for handshake
-stream id is 0
-offset is 0
-data is 'ClientHello'
-"""
-client_hello_frame = api.construct_quic_frame(6, 0, 0, "ClientHello")
-
-"""
----Construct ClientHello packet---
-packet type is 0
-version is 1
-dcid (destination connection id) is '0002'
-scid (source connection id) is '0001'
-payload is client_hello_frame
-"""
-client_hello_packet = api.construct_quic_long_header(0, 1, server_CID, client_CID, client_hello_frame)
-sock.sendto(client_hello_packet.encode(), (server_ip, server_port))
-print("Sent ClientHello.")
-
-# Set time out for server hello packet
-sock.settimeout(time_threshold)
-
-while True:
-
-    try:
-        data_recv, addr = sock.recvfrom(buffer_size)
-    except socket.timeout:  # On timeout, resend the handshake packet
-        print("ServerHello timeout.")
-        sock.sendto(client_hello_packet.encode(), (server_ip, server_port))
-        retransmit_counter += 1
-        print("Sent ClientHello.")
-        continue
-    except BlockingIOError:
-        continue
-
-    # parse the received data
-    parsed_packet = api.parse_quic_long_header(data_recv)
-    parsed_frame = api.parse_quic_frame(parsed_packet['payload'])
-    if parsed_frame['data'].decode() == 'ServerHello':
-        print("Received ServerHello.\nHandshake Completed.")
-        break
-
-# Cancel socket timeout for normal UDP operation
-sock.settimeout(None)
-
-filename = "alphanumeric_file.txt"
-filesize = os.path.getsize(filename)
-total_packets = (filesize // buffer_size) + (1 if filesize % buffer_size else 0)
-
-# Send initial packet with filename and total packets
-# initial_packet = f"{filename},{total_packets}".encode()
-# sock.sendto(initial_packet, (server_ip, server_port))
-
-# Create a packet deque
-# Element format: [ packet_number , is_ACKed , send_time , packet ]
-packet_queue = deque()
-
-# Set socket to non-blocking mode
-sock.setblocking(False)
-
-# Open file and send in chunks
-with open(filename, 'rb') as f:
-    for packet_number in range(1, total_packets + 1):
-        # print(len(packet_queue))
-
-        # Read file chunk
-        bytes_read = f.read(buffer_size)
-
-        # Create frame
-        frame = api.construct_quic_frame(8, 0, 0, bytes_read)
-
-        # Create QUIC packet
-        packet = api.construct_quic_short_header_binary(server_CID, packet_number, frame)
-        # print(f"packet number {packet_number} sent to server")
-
-        packet_queue.append([packet_number, False, datetime.timestamp(datetime.now()), packet])
-
-        # Send packet
-        sock.sendto(packet.encode(), (server_ip, server_port))
-        last_ack_time = -1
-
-        # Try to receive ACKs
-        try:
-            while True:
-                ready = select.select([sock], [], [], 0)
-                if ready[0]:
-                    ack, _ = sock.recvfrom(2048)
-                    last_ack_time = datetime.timestamp(datetime.now())
-
-                    # Avoid parsing long headers
-                    if ack[0] == ord('1'):
-                        continue
-
-                    packet_parsed = api.parse_quic_short_header_binary(ack)
-                    packet_payload = packet_parsed['payload']
-                    frame_parsed = api.parse_quic_frame(packet_payload)
-                    frame_data = frame_parsed['data']
-                    # print(f"Received ack for packet number: {frame_data}")
-
-                    # In deque change for the packet arrive in True
-                    for element in packet_queue:
-                        if element[0] == int(frame_data):  # Packet Number
-                            element[1] = True  # ACK packet arrived
-                            break
-
-                else:
-                    # No more ACKs available, break from the loop
-                    break
-
-        except BlockingIOError:
-            # No data available
-            pass
-
-        # Pop all True elements from the head of the deque until reaching false
-        while packet_queue and packet_queue[0][1]:
+def packet_number_based_recovery(packet_queue):
+    last_ack = 0
+    i = 0
+    for element in reversed(packet_queue):
+        if element[1]:
+            last_ack = len(packet_queue) - i - 1
+            break
+        i += 1
+    
+    counter = 0
+    for i in range(0, last_ack - packet_reordering_threshold):
+        if packet_queue[0][1]:
             packet_queue.popleft()
+        else:
+            packet_queue[0][2] = datetime.timestamp(datetime.now())
+            packet_queue.append(packet_queue[0])
+            sock.sendto(packet_queue[0][3].encode(), (server_ip, server_port))
+            counter += 1
+            packet_queue.popleft()
+    return counter
 
-        if time_based:
-            # Make a deep copy for packet_queue
-            packet_queue_copy = copy.deepcopy(packet_queue)
-            for element in packet_queue_copy:
-                if last_ack_time - element[2] > time_threshold and not element[1]:
-                    packet_queue.remove(element)
-                    element[2] = datetime.timestamp(datetime.now())
-                    packet_queue.append(element)
-                    # print(f"Packet {element[0]} ack timeout")
-                    sock.sendto(element[3].encode(), (server_ip, server_port))
-                    retransmit_counter += 1
+def receive_ACKs(packet_queue, tail):
+    retransmit_counter = 0
+    last_ack_time = -1
+    if tail:
+        last_ack_time = datetime.timestamp(datetime.now())
 
-        last_ack = 0
-        i = 0
-        if packet_number_based:
-            for element in reversed(packet_queue):
-                if element[1]:
-                    last_ack = len(packet_queue) - i - 1
-                    break
-                i += 1
-
-            for i in range(0, last_ack - packet_reordering_threshold):
-                if packet_queue[0][1]:
-                    packet_queue.popleft()
-                else:
-                    packet_queue[0][2] = datetime.timestamp(datetime.now())
-                    packet_queue.append(packet_queue[0])
-                    sock.sendto(packet_queue[0][3].encode(), (server_ip, server_port))
-                    retransmit_counter += 1
-                    packet_queue.popleft()
-
-print(f"length of queue: {len(packet_queue)}")
-while len(packet_queue) > 0:
-    last_ack_time = datetime.timestamp(datetime.now())
     # Try to receive ACKs
     try:
         while True:
@@ -226,59 +109,86 @@ while len(packet_queue) > 0:
     while packet_queue and packet_queue[0][1]:
         packet_queue.popleft()
 
-    if time_based:
-        # Make a deep copy for packet_queue
-        packet_queue_copy = copy.deepcopy(packet_queue)
-        for element in packet_queue_copy:
-            if last_ack_time - element[2] > time_threshold and not element[1]:
-                packet_queue.remove(element)
-                element[2] = datetime.timestamp(datetime.now())
-                packet_queue.append(element)
-                # print(f"Packet {element[0]} ack timeout")
-                sock.sendto(element[3].encode(), (server_ip, server_port))
-                retransmit_counter += 1
+    if time_based or (tail and len(packet_queue) <= packet_reordering_threshold*2):  # PTO for tail packets
+        retransmit_counter += time_based_recovery(packet_queue, last_ack_time)
 
-    last_ack = 0
-    i = 0
     if packet_number_based:
-        for element in reversed(packet_queue):
-            if element[1]:
-                last_ack = len(packet_queue) - i - 1
-                break
-            i += 1
+        retransmit_counter += packet_number_based_recovery(packet_queue)
+    
+    return retransmit_counter
 
-        for i in range(0, last_ack - packet_reordering_threshold):
-            if packet_queue[0][1]:
-                packet_queue.popleft()
-            else:
-                packet_queue[0][2] = datetime.timestamp(datetime.now())
-                packet_queue.append(packet_queue[0])
-                sock.sendto(packet_queue[0][3].encode(), (server_ip, server_port))
-                retransmit_counter += 1
-                packet_queue.popleft()
+
+
+# QUIC handshake
+
+api.send_hello_packet(socket=sock, streamID=0, dcid=server_CID, scid=client_CID, side='Client', address=(server_ip, server_port))
+print("Sent ClientHello.")
+
+# Set time out for server hello packet
+sock.settimeout(time_threshold)
+
+while True:
+
+    try:
+        data_recv, addr = sock.recvfrom(buffer_size)
+    except socket.timeout:  # On timeout, resend the handshake packet
+        print("ServerHello timeout.")
+        api.send_hello_packet(socket=sock, streamID=0, dcid=server_CID, scid=client_CID, side='Client', address=(server_ip, server_port))
+        retransmit_counter += 1
+        print("Sent ClientHello.")
+        continue
+    except BlockingIOError:
+        continue
+
+    # parse the received data
+    parsed_packet = api.parse_quic_long_header(data_recv)
+    parsed_frame = api.parse_quic_frame(parsed_packet['payload'])
+    if parsed_frame['data'].decode() == 'ServerHello':
+        print("Received ServerHello.\nHandshake Completed.")
+        break
+
+# Cancel socket timeout for normal UDP operation
+sock.settimeout(None)
+
+filename = "alphanumeric_file.txt"
+filesize = os.path.getsize(filename)
+total_packets = (filesize // buffer_size) + (1 if filesize % buffer_size else 0)
+
+# Create a packet deque
+# Element format: [ packet_number , is_ACKed , send_time , packet ]
+packet_queue = deque()
+
+# Set socket to non-blocking mode
+sock.setblocking(False)
+
+# Open file and send in chunks
+with open(filename, 'rb') as f:
+    for packet_number in range(1, total_packets + 1):
+
+        # Read file chunk
+        bytes_read = f.read(buffer_size)
+
+        # Create frame
+        frame = api.construct_quic_frame(8, 0, 0, bytes_read)
+
+        # Create QUIC packet
+        packet = api.construct_quic_short_header_binary(server_CID, packet_number, frame)
+        # print(f"packet number {packet_number} sent to server")
+
+        packet_queue.append([packet_number, False, datetime.timestamp(datetime.now()), packet])
+
+        # Send packet
+        sock.sendto(packet.encode(), (server_ip, server_port))
+
+        retransmit_counter += receive_ACKs(packet_queue, False)
+
+print(f"length of queue: {len(packet_queue)}")
+while len(packet_queue) > 0:
+    retransmit_counter += receive_ACKs(packet_queue, True)
 
 print("File sent successfully.")
 
-# Send CONNECTION_CLOSE massage to the server
-
-"""
----Construct CONNECTION_CLOSE frame---
-frame type 0x1c is being used for connection close
-stream id is 0
-offset is 0
-data is 'CONNECTION_CLOSE'
-"""
-connection_close_frame = api.construct_quic_frame(0x1c, 0, 0, "CONNECTION_CLOSE")
-
-"""
----Construct CONNECTION_CLOSE packet---
-dcid is 2 (server)
-The number packet is total_packets + 1
-The frame is connection_close_frame
-"""
-connection_close_packet = api.construct_quic_short_header_binary(server_CID, total_packets + 1, connection_close_frame)
-
-sock.sendto(connection_close_packet.encode(), (server_ip, server_port))
+api.send_connection_close_packet(socket=sock, streamID=0, dcid=server_CID, packet_number=total_packets+1, address=(server_ip, server_port))
 
 print("Sending CONNECTION_CLOSE frame to server.")
 
