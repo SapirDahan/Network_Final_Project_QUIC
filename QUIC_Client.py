@@ -6,14 +6,27 @@ from datetime import datetime
 import QUIC_api as api
 import copy
 from tqdm import tqdm
+import argparse
+
+parser = argparse.ArgumentParser(description="Enter the thresholds for timee based recovery and packet number based recovery or leave them out to use the deafult threshold. To turn off a specific recovery, set its threshold to 0. Note that you need at least one active recovery algorithm")
+parser.add_argument("-t", "--time", type=float, default=0.1, help="Value of time_threshold (default: 0.1). Enter 0 to turn off time based recovery.")
+parser.add_argument("-n", "--number", type=int, default=10, help="packet_reordering_threshold (default: 10). Enter 0 to turn off packet number based recovery.")
+args = parser.parse_args()
+
+if args.time == 0 and args.number == 0:
+    raise Exception("Need to have at least one recovery algorithm")
 
 # Recovery Algorithms
-packet_number_based = True
-time_based = False
+packet_number_based = args.number != 0
+time_based = args.time != 0
 
 # Thresholds for recovery algorithms
-packet_reordering_threshold = 10
-time_threshold = 0.1
+packet_reordering_threshold = args.number
+time_threshold = args.time
+if not packet_number_based:
+    packet_reordering_threshold = 10
+if not time_threshold:
+    time_threshold = 0.1
 
 # Client setup
 server_ip = '127.0.0.1'
