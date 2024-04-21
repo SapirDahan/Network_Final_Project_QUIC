@@ -201,6 +201,87 @@ def parse_quic_frame(frame_binary):
 
     return parsed_frame
 
+def construct_quic_ack_packet(dcid, packet_number, ack_delay, ack_ranges):
+    """
+    Constructs a representation of a QUIC ack packets using binary operations for the header fields.
+
+    Parameters:
+    - dcid: The Destination Connection ID as an integer.
+    - packet_number: The packet number as an integer.
+    - ack_delay: (in ms) The maximum time a receiver might delay sending an ACK.
+    - ack_ranges: A list of pairs that represent the ACKed ranges.
+
+    Returns:
+    A binary string representing the packet with an ACK packet.
+    """
+
+    # Header Form (1 for long header) and Key Phase Bit (assuming 0), both in binary
+    # Note: In an actual implementation, these would be part of a single byte with other flags
+    header_form = '1'  # 1 bit
+    key_phase_bit = '0'  # 1 bit
+
+    # Convert dcid and packet_number to binary strings
+    # Here we assume dcid is represented with a fixed length for simplicity
+    dcid_bin = format(dcid, '064b')  # Assuming 8 bytes for DCID, represented in 64 bits
+    packet_number_bin = format(packet_number, '032b')  # Assuming up to 4 bytes for packet number, represented in 32 bits
+    ack_delay_bin = format(ack_delay, '016b')  # Assuming up to 3 bytes for ACK delay in ms, represented in 16 bits
+    blocks_count = format(len(ack_ranges), '032b') # Assuming up to 4 bytes for number of ACK ranges, represented in 32 bits TODO: enforce this
+
+    # Constructing the header in binary
+    quic_packet_binary = header_form + key_phase_bit + dcid_bin + packet_number_bin + ack_delay_bin + blocks_count
+
+    # Constructing the ranges in binary
+    for ack_range in ack_ranges:  # Assuming up to 4 bytes for packet number, represented in 32 bits
+        quic_packet_binary += format(ack_range[0], '032b') + format(ack_range[1], '032b')
+
+    return quic_packet_binary
+
+
+def parse_quic_ack_packet(quic_packet_binary):
+    """
+    Parses a QUIC ACK packet from a binary string representation, as constructed previously.
+
+    Parameters:
+    - quic_packet_binary: A binary string representing the ACK packet.
+
+    Returns:
+    A dictionary with the parsed header components.
+    """
+
+    # Extracting the binary components from the header
+    header_form = quic_packet_binary[0]  # 1 bit
+    key_phase_bit = quic_packet_binary[1]  # 1 bit
+
+    # Assuming fixed lengths for DCID and Packet Number as in construction
+    dcid_bin = quic_packet_binary[2:66]  # Next 64 bits for DCID
+    packet_number_bin = quic_packet_binary[66:98]  # Next 32 bits for Packet Number
+
+    # Convert binary components to their respective values
+    dcid = int(dcid_bin, 2)
+    packet_number = int(packet_number_bin, 2)
+
+    # Parse the ACK fields
+    ack_delay = int(quic_packet_binary[98:114], 2)  # Next 16 bits are for ACK delay
+    blocks_count = int(quic_packet_binary[114:146], 2)  # Next 32 bits are for blocks count
+    ack_ranges = []
+    for i in range(blocks_count):
+        left = int(quic_packet_binary[146 + i*64: 178 + i*64], 2)
+        right = int(quic_packet_binary[178 + i*64: 210 + i*64], 2)
+        ack_ranges.append((left,right))
+
+    # Constructing and returning the parsed information
+    parsed_header = {
+        "header_form": int(header_form),
+        "key_phase_bit": int(key_phase_bit),
+        "dcid": dcid,
+        "packet_number": packet_number,
+        "ack_delay": ack_delay,
+        "blocks_count": blocks_count,
+        "ack_ranges": ack_ranges
+    }
+
+    return parsed_header
+
 def send_hello_packet(socket, streamID, dcid, scid, side, address):
     """
     Sends an hello packet with a single frame.

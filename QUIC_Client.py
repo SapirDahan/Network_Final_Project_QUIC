@@ -5,7 +5,6 @@ from collections import deque
 from datetime import datetime
 import QUIC_api as api
 import copy
-from tqdm import tqdm
 import argparse
 
 parser = argparse.ArgumentParser(description="Enter the thresholds for timee based recovery and packet number based recovery or leave them out to use the deafult threshold. To turn off a specific recovery, set its threshold to 0. Note that you need at least one active recovery algorithm")
@@ -115,7 +114,7 @@ def receive_ACKs(packet_queue, tail):
                 ack, _ = sock.recvfrom(2048)
                 last_ack_time = datetime.timestamp(datetime.now())
 
-                # Avoid parsing long headers
+                # Avoid parsing long headers TODO: change this because ACK is long header
                 if ack[0] == ord('1'):
                     continue
 
