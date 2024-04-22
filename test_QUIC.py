@@ -60,26 +60,26 @@ class TestQUIC(unittest.TestCase):
         self.assertListEqual(parsed_packet["ack_ranges"], ack_ranges)
 
     
-    # def test_single_run(self):
-    #     try:
-    #         single_default_run(15)
-    #     except TimeoutError:
-    #         self.fail("Test execution timed out")
-    #
-    # def test_multiple_runs_packet_loss(self):
-    #     packet_losses = [0,0.1,1,5,10,30]
-    #     os.system("sudo tc qdisc add dev lo root netem loss 0%")
-    #
-    #     for packet_loss in packet_losses:
-    #         os.system(f'sudo tc qdisc change dev lo root netem loss {packet_loss}%')
-    #         time.sleep(0.01)
-    #         try:
-    #             speed = single_default_run(15)
-    #             print(f'packet loss {packet_loss}: {speed} MB/s')
-    #         except TimeoutError:
-    #             self.fail(f"Test execution timed out for packet loss {packet_loss}")
-    #
-    #     os.system("sudo tc qdisc del dev lo root netem")
+    def test_single_run(self):
+        try:
+            single_default_run(15)
+        except TimeoutError:
+            self.fail("Test execution timed out")
+
+    def test_multiple_runs_packet_loss(self):
+        packet_losses = [0,0.1,1,5,10,30]
+        os.system("sudo tc qdisc add dev lo root netem loss 0%")
+
+        for packet_loss in packet_losses:
+            os.system(f'sudo tc qdisc change dev lo root netem loss {packet_loss}%')
+            time.sleep(0.01)
+            try:
+                speed = single_default_run(15)
+                print(f'packet loss {packet_loss}: {speed} MB/s')
+            except TimeoutError:
+                self.fail(f"Test execution timed out for packet loss {packet_loss}")
+
+        os.system("sudo tc qdisc del dev lo root netem")
         
 
     # def test_ranges(self):

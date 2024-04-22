@@ -225,7 +225,7 @@ def construct_quic_ack_packet(dcid, packet_number, ack_delay, ack_ranges):
     dcid_bin = format(dcid, '064b')  # Assuming 8 bytes for DCID, represented in 64 bits
     packet_number_bin = format(packet_number, '032b')  # Assuming up to 4 bytes for packet number, represented in 32 bits
     ack_delay_bin = format(ack_delay, '016b')  # Assuming up to 3 bytes for ACK delay in ms, represented in 16 bits
-    blocks_count = format(len(ack_ranges), '032b') # Assuming up to 4 bytes for number of ACK ranges, represented in 32 bits TODO: enforce this
+    blocks_count = format(len(ack_ranges), '032b') # Assuming up to 4 bytes for number of ACK ranges, represented in 32 bits
 
     # Constructing the header in binary
     quic_packet_binary = header_form + key_phase_bit + dcid_bin + packet_number_bin + ack_delay_bin + blocks_count
@@ -264,10 +264,12 @@ def parse_quic_ack_packet(quic_packet_binary):
     ack_delay = int(quic_packet_binary[98:114], 2)  # Next 16 bits are for ACK delay
     blocks_count = int(quic_packet_binary[114:146], 2)  # Next 32 bits are for blocks count
     ack_ranges = []
-    for i in range(blocks_count):
+    i = 0
+    while 210 + i*64 <= len(quic_packet_binary):
         left = int(quic_packet_binary[146 + i*64: 178 + i*64], 2)
         right = int(quic_packet_binary[178 + i*64: 210 + i*64], 2)
         ack_ranges.append((left,right))
+        i += 1
 
     # Constructing and returning the parsed information
     parsed_header = {

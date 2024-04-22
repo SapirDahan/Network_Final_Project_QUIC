@@ -1,5 +1,6 @@
 import socket
 import QUIC_api as api
+from datetime import datetime, timedelta
 
 # Server setup
 server_ip = '127.0.0.1'
@@ -12,6 +13,9 @@ client_CID = None  # receive client_CID at handshake
 
 # Timeout for the server to wait for retransmission before continuing
 retransmission_timeout = 0.05
+
+# bla bla bla
+ACK_DELAY = 20  # in ms
 
 # Create UDP socket
 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -92,13 +96,45 @@ while True:
         break
 
     if frame_parsed['frame_type'] == 0x08:
-        # Creating ACK frame
-        ack_frame = api.construct_quic_frame(2, 0, 0, str(packet_number))
+        packets_received = [packet_number]
+        ack_delay_time = (datetime.now() + timedelta(milliseconds=ACK_DELAY)).timestamp()
 
-        # Create ACK packet and send to client
-        ack_packet = api.construct_quic_short_header_binary(client_CID, ack_packet_number, ack_frame)
-        ack_packet_number += 1
-        sock.sendto(ack_packet.encode(), addr)
+        while True:
+            curr_timeout = ack_delay_time - datetime.now().timestamp()
+            if curr_timeout < 0:
+                break
+            sock.settimeout(curr_timeout)
+            try:
+                packet, addr = sock.recvfrom(buffer_size)
+
+                packet_parsed = api.parse_quic_short_header_binary(packet)
+                packet_number = packet_parsed['packet_number']
+
+                if packet_number not in packets_received:
+                    packets_received.append(packet_number)
+
+            except socket.timeout:
+                break
+            except BlockingIOError:
+                pass
+        sock.settimeout(timeout)
+
+        ack_ranges = []
+        i = 0
+        while i < len(packets_received):
+            left = packets_received[i]
+            while i < len(packets_received)-1 and packets_received[i]+1 == packets_received[i+1]:
+                i += 1
+            right = packets_received[i]
+            ack_ranges.append((left,right))
+            i += 1
+
+        if len(ack_ranges) > 0:
+            # Create ACK packet and send to client
+            ack_packet = api.construct_quic_ack_packet(client_CID, ack_packet_number, ACK_DELAY, ack_ranges)
+            parsed_ack_packet = api.parse_quic_ack_packet(ack_packet)  # TODO: delete this line
+            ack_packet_number += 1
+            sock.sendto(ack_packet.encode(), addr)
 
 
 if not timeout_flag:

@@ -26,6 +26,7 @@ if not packet_number_based:
     packet_reordering_threshold = 10
 if not time_threshold:
     time_threshold = 0.1
+PTO_timeout = 0.05
 
 # Client setup
 server_ip = '127.0.0.1'
@@ -100,6 +101,28 @@ def packet_number_based_recovery(packet_queue):
             packet_queue.popleft()
     return counter
 
+def PTO_recovery(packet_queue):
+    global current_packet_number
+    # Make a deep copy for packet_queue
+    packet_queue_copy = copy.deepcopy(packet_queue)
+    counter = 0
+    for element in packet_queue_copy:
+        if datetime.now().timestamp() - element[2] > PTO_timeout and not element[1]:
+            packet_queue.remove(element)
+
+            element[0] = current_packet_number
+            lost_packet = api.parse_quic_short_header_binary(element[3])
+            lost_packet['packet_number'] = current_packet_number
+            element[3] = api.construct_quic_short_header_binary(lost_packet["dcid"], lost_packet["packet_number"],
+                                                                lost_packet["payload"])
+            element[2] = datetime.timestamp(datetime.now())
+
+            packet_queue.append(element)
+            sock.sendto(element[3].encode(), (server_ip, server_port))
+            counter += 1
+            current_packet_number += 1
+    return counter
+
 def receive_ACKs(packet_queue, tail):
     retransmit_counter = 0
     last_ack_time = -1
@@ -114,21 +137,20 @@ def receive_ACKs(packet_queue, tail):
                 ack, _ = sock.recvfrom(2048)
                 last_ack_time = datetime.timestamp(datetime.now())
 
-                # Avoid parsing long headers TODO: change this because ACK is long header
-                if ack[0] == ord('1'):
+                # Avoid parsing short headers
+                if ack[0] == ord('0'):
                     continue
 
-                packet_parsed = api.parse_quic_short_header_binary(ack)
-                packet_payload = packet_parsed['payload']
-                frame_parsed = api.parse_quic_frame(packet_payload)
-                frame_data = frame_parsed['data']
-                # print(f"Received ack for packet number: {frame_data}")
-
-                # In deque change for the packet arrive in True
+                ack_packet = api.parse_quic_ack_packet(ack)
+                ack_ranges = ack_packet['ack_ranges']
+                curr_block = 0
                 for element in packet_queue:
-                    if element[0] == int(frame_data):  # Packet Number
-                        element[1] = True  # ACK packet arrived
+                    if curr_block >= len(ack_ranges):
                         break
+                    if ack_ranges[curr_block][0] <= element[0] <= ack_ranges[curr_block][1]:
+                        element[1] = True
+                    elif element[0] > ack_ranges[curr_block][1]:
+                        curr_block += 1
 
             else:
                 # No more ACKs available, break from the loop
@@ -142,11 +164,14 @@ def receive_ACKs(packet_queue, tail):
     while packet_queue and packet_queue[0][1]:
         packet_queue.popleft()
 
-    if time_based or (tail and len(packet_queue) <= packet_reordering_threshold*2):  # PTO for tail packets
+    if time_based:
         retransmit_counter += time_based_recovery(packet_queue, last_ack_time)
 
     if packet_number_based:
         retransmit_counter += packet_number_based_recovery(packet_queue)
+
+    if tail and len(packet_queue) <= max(packet_reordering_threshold,10)*2:  # PTO for tail packets
+        retransmit_counter += PTO_recovery(packet_queue)
     
     return retransmit_counter
 
