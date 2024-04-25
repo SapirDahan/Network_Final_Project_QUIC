@@ -130,7 +130,9 @@ def PTO_recovery(packet_queue):
     return counter
 
 def receive_ACKs(packet_queue, tail):
-    retransmit_counter = 0
+    global time_retransmit_counter
+    global packet_number_retransmit_counter
+
     last_ack_time = -1
     if tail:
         last_ack_time = datetime.timestamp(datetime.now())
