@@ -40,6 +40,12 @@ server_CID = 2
 # Re-transition counter
 retransmit_counter = 0
 
+# Time retransmit counter
+time_retransmit_counter = 0
+
+# Packet number retransmit counter
+packet_number_retransmit_counter = 0
+
 # Current packet number
 current_packet_number = 0
 
@@ -165,10 +171,15 @@ def receive_ACKs(packet_queue, tail):
         packet_queue.popleft()
 
     if time_based:
-        retransmit_counter += time_based_recovery(packet_queue, last_ack_time)
+        countOne = time_based_recovery(packet_queue, last_ack_time)
+        retransmit_counter += countOne
+        time_retransmit_counter += countOne
 
     if packet_number_based:
-        retransmit_counter += packet_number_based_recovery(packet_queue)
+        countTwo = packet_number_based_recovery(packet_queue)
+        retransmit_counter += countTwo
+        packet_number_retransmit_counter += countTwo
+
 
     if tail and len(packet_queue) <= max(packet_reordering_threshold,10)*2:  # PTO for tail packets
         retransmit_counter += PTO_recovery(packet_queue)
@@ -300,3 +311,5 @@ print(f"Bandwidth: {bandwidth:.3f} MB/s\n")
 print(f"Unique packets: {total_packets}")
 print(f"Re-transmitted packets: {retransmit_counter}")
 print(f"Final packet number: {current_packet_number-1}")
+print(f"time retransmit counter: {time_retransmit_counter} ")
+print(f"packet number retransmit counter: {packet_number_retransmit_counter}")
