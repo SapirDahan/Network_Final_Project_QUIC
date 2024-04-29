@@ -7,43 +7,44 @@ import QUIC_api as api
 import copy
 import argparse
 
-parser = argparse.ArgumentParser(description="Enter the thresholds for timee based recovery and packet number based recovery or leave them out to use the deafult threshold. To turn off a specific recovery, set its threshold to 0. Note that you need at least one active recovery algorithm")
-parser.add_argument("-t", "--time", type=float, default=0.1, help="Value of time_threshold (default: 0.1). Enter 0 to turn off time based recovery.")
-parser.add_argument("-n", "--number", type=int, default=10, help="packet_reordering_threshold (default: 10). Enter 0 to turn off packet number based recovery.")
+parser = argparse.ArgumentParser(
+    description="Enter the thresholds for time based recovery and packet number based recovery or leave them out to "
+                "use the default threshold. To turn off a specific recovery, set its threshold to 0. Note that you "
+                "need at least one active recovery algorithm")
+parser.add_argument("-t", "--time", type=float, default=0.1,
+                    help="Value of time_threshold (default: 0.1). Enter 0 to turn off time based recovery.")
+parser.add_argument("-n", "--number", type=int, default=10,
+                    help="packet_reordering_threshold (default: 10). Enter 0 to turn off packet number based recovery.")
 args = parser.parse_args()
 
 if args.time == 0 and args.number == 0:
     raise Exception("Need to have at least one recovery algorithm")
 
 # Recovery Algorithms
-packet_number_based = args.number != 0
-time_based = args.time != 0
+PACKET_NUMBER_BASED = args.number != 0
+TIME_BASED = args.time != 0
 
 # Thresholds for recovery algorithms
-packet_reordering_threshold = args.number
-time_threshold = args.time
-if not packet_number_based:
-    packet_reordering_threshold = 10
-if not time_threshold:
-    time_threshold = 0.1
-PTO_timeout = 0.05
+PACKET_REORDERING_THRESHOLD = args.number
+TIME_THRESHOLD = args.time
+if not PACKET_NUMBER_BASED:
+    PACKET_REORDERING_THRESHOLD = 10
+if not TIME_THRESHOLD:
+    TIME_THRESHOLD = 0.1
+PTO_TIMEOUT = 0.05
 
 # Client setup
-server_ip = '127.0.0.1'
-server_port = 9997
-buffer_size = 1827  # 2048 - 221: packet size minus header size
+SERVER_IP = '127.0.0.1'
+SERVER_PORT = 9997
+BUFFER_SIZE = 1827  # 2048 - 221: packet size minus header size
 
 # CIDs
-client_CID = 1
-server_CID = 2
+CLIENT_CID = 1
+SERVER_CID = 2
 
-# Re-transition counter
+# Retransmition counters
 retransmit_counter = 0
-
-# Time retransmit counter
 time_retransmit_counter = 0
-
-# Packet number retransmit counter
 packet_number_retransmit_counter = 0
 
 # Current packet number
@@ -55,39 +56,45 @@ start_time = datetime.timestamp(datetime.now())
 # Create UDP socket
 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
+
 def time_based_recovery(packet_queue, last_ack_time):
     global current_packet_number
     # Make a deep copy for packet_queue
     packet_queue_copy = copy.deepcopy(packet_queue)
     counter = 0
     for element in packet_queue_copy:
-        if last_ack_time - element[2] > time_threshold and not element[1]:
+        if last_ack_time - element[2] > TIME_THRESHOLD and not element[1]:
             packet_queue.remove(element)
 
+            # Assign the packet a new packet number and append it to the queue
             element[0] = current_packet_number
             lost_packet = api.parse_quic_short_header_binary(element[3])
             lost_packet['packet_number'] = current_packet_number
-            element[3] = api.construct_quic_short_header_binary(lost_packet["dcid"],lost_packet["packet_number"],lost_packet["payload"])
+            element[3] = api.construct_quic_short_header_binary(lost_packet["dcid"], lost_packet["packet_number"],
+                                                                lost_packet["payload"])
             element[2] = datetime.timestamp(datetime.now())
-
             packet_queue.append(element)
-            sock.sendto(element[3].encode(), (server_ip, server_port))
+
+            # Resend the packet
+            sock.sendto(element[3].encode(), (SERVER_IP, SERVER_PORT))
             counter += 1
             current_packet_number += 1
     return counter
 
+
 def packet_number_based_recovery(packet_queue):
     last_ack = 0
     i = 0
+    #
     for element in reversed(packet_queue):
         if element[1]:
             last_ack = len(packet_queue) - i - 1
             break
         i += 1
-    
+
     global current_packet_number
     counter = 0
-    for i in range(0, last_ack - packet_reordering_threshold):
+    for i in range(0, last_ack - PACKET_REORDERING_THRESHOLD):
         if packet_queue[0][1]:
             packet_queue.popleft()
         else:
@@ -95,17 +102,20 @@ def packet_number_based_recovery(packet_queue):
             packet_queue[0][0] = current_packet_number
             lost_packet = api.parse_quic_short_header_binary(packet_queue[0][3])
             lost_packet['packet_number'] = current_packet_number
-            packet_queue[0][3] = api.construct_quic_short_header_binary(lost_packet["dcid"],lost_packet["packet_number"],lost_packet["payload"])
+            packet_queue[0][3] = api.construct_quic_short_header_binary(lost_packet["dcid"],
+                                                                        lost_packet["packet_number"],
+                                                                        lost_packet["payload"])
             packet_queue[0][2] = datetime.timestamp(datetime.now())
 
             # Append it to the queue and send it again
             packet_queue.append(packet_queue[0])
-            sock.sendto(packet_queue[0][3].encode(), (server_ip, server_port))
+            sock.sendto(packet_queue[0][3].encode(), (SERVER_IP, SERVER_PORT))
 
             counter += 1
             current_packet_number += 1
             packet_queue.popleft()
     return counter
+
 
 def PTO_recovery(packet_queue):
     global current_packet_number
@@ -113,7 +123,7 @@ def PTO_recovery(packet_queue):
     packet_queue_copy = copy.deepcopy(packet_queue)
     counter = 0
     for element in packet_queue_copy:
-        if datetime.now().timestamp() - element[2] > PTO_timeout and not element[1]:
+        if datetime.now().timestamp() - element[2] > PTO_TIMEOUT and not element[1]:
             packet_queue.remove(element)
 
             element[0] = current_packet_number
@@ -124,10 +134,11 @@ def PTO_recovery(packet_queue):
             element[2] = datetime.timestamp(datetime.now())
 
             packet_queue.append(element)
-            sock.sendto(element[3].encode(), (server_ip, server_port))
+            sock.sendto(element[3].encode(), (SERVER_IP, SERVER_PORT))
             counter += 1
             current_packet_number += 1
     return counter
+
 
 def receive_ACKs(packet_queue, tail):
     global time_retransmit_counter
@@ -173,39 +184,39 @@ def receive_ACKs(packet_queue, tail):
     while packet_queue and packet_queue[0][1]:
         packet_queue.popleft()
 
-    if time_based:
-        countOne = time_based_recovery(packet_queue, last_ack_time)
-        retransmit_counter += countOne
-        time_retransmit_counter += countOne
+    if TIME_BASED:
+        count = time_based_recovery(packet_queue, last_ack_time)
+        retransmit_counter += count
+        time_retransmit_counter += count
 
-    if packet_number_based:
-        countTwo = packet_number_based_recovery(packet_queue)
-        retransmit_counter += countTwo
-        packet_number_retransmit_counter += countTwo
+    if PACKET_NUMBER_BASED:
+        count = packet_number_based_recovery(packet_queue)
+        retransmit_counter += count
+        packet_number_retransmit_counter += count
 
-
-    if tail and len(packet_queue) <= max(packet_reordering_threshold,10)*2:  # PTO for tail packets
+    if tail and len(packet_queue) <= max(PACKET_REORDERING_THRESHOLD, 10) * 2:  # PTO for tail packets
         retransmit_counter += PTO_recovery(packet_queue)
-    
-    return retransmit_counter
 
+    return retransmit_counter
 
 
 # QUIC handshake
 
-api.send_hello_packet(socket=sock, streamID=0, dcid=server_CID, scid=client_CID, side='Client', address=(server_ip, server_port))
+api.send_hello_packet(socket=sock, streamID=0, dcid=SERVER_CID, scid=CLIENT_CID, side='Client',
+                      address=(SERVER_IP, SERVER_PORT))
 print("Sent ClientHello.")
 
 # Set time out for server hello packet
-sock.settimeout(time_threshold)
+sock.settimeout(TIME_THRESHOLD)
 
 while True:
 
     try:
-        data_recv, addr = sock.recvfrom(buffer_size)
+        data_recv, addr = sock.recvfrom(BUFFER_SIZE)
     except socket.timeout:  # On timeout, resend the handshake packet
         print("ServerHello timeout.")
-        api.send_hello_packet(socket=sock, streamID=0, dcid=server_CID, scid=client_CID, side='Client', address=(server_ip, server_port))
+        api.send_hello_packet(socket=sock, streamID=0, dcid=SERVER_CID, scid=CLIENT_CID, side='Client',
+                              address=(SERVER_IP, SERVER_PORT))
         retransmit_counter += 1
         print("Sent ClientHello.")
         continue
@@ -222,9 +233,15 @@ while True:
 # Cancel socket timeout for normal UDP operation
 sock.settimeout(None)
 
-filename = "alphanumeric_file.txt"
-filesize = os.path.getsize(filename)
-total_packets = (filesize // buffer_size) + (1 if filesize % buffer_size else 0)
+FILE_PATH = os.path.abspath(os.path.dirname(__file__))+"/alphanumeric_file.txt"
+print(FILE_PATH)
+# Open the text file in read mode
+with open(FILE_PATH, 'r') as file:
+    # Get the size of the file
+    file.seek(0, os.SEEK_END)
+    FILE_SIZE = file.tell()
+    file.seek(0)
+total_packets = (FILE_SIZE // BUFFER_SIZE) + (1 if FILE_SIZE % BUFFER_SIZE else 0)
 
 # Create a packet deque
 # Element format: [ packet_number , is_ACKed , send_time , packet ]
@@ -235,24 +252,23 @@ sock.setblocking(False)
 
 # Open file and send in chunks
 curr_offest = 0
-with open(filename, 'rb') as f:
+with open(FILE_PATH, 'rb') as f:
     for i in range(1, total_packets + 1):
-
         # Read file chunk
-        bytes_read = f.read(buffer_size)
+        bytes_read = f.read(BUFFER_SIZE)
 
         # Create frame
         frame = api.construct_quic_frame(8, 0, curr_offest, bytes_read)
         curr_offest += len(bytes_read)
 
         # Create QUIC packet
-        packet = api.construct_quic_short_header_binary(server_CID, current_packet_number, frame)
+        packet = api.construct_quic_short_header_binary(SERVER_CID, current_packet_number, frame)
         # print(f"packet number {packet_number} sent to server")
 
         packet_queue.append([current_packet_number, False, datetime.timestamp(datetime.now()), packet])
 
         # Send packet
-        sock.sendto(packet.encode(), (server_ip, server_port))
+        sock.sendto(packet.encode(), (SERVER_IP, SERVER_PORT))
 
         # Update the current packet number
         current_packet_number += 1
@@ -265,15 +281,16 @@ while len(packet_queue) > 0:
 
 print("File sent successfully.")
 
-api.send_connection_close_packet(socket=sock, streamID=0, dcid=server_CID, packet_number=total_packets+1, address=(server_ip, server_port))
+api.send_connection_close_packet(socket=sock, streamID=0, dcid=SERVER_CID, packet_number=total_packets + 1,
+                                 address=(SERVER_IP, SERVER_PORT))
 
 print("Sending CONNECTION_CLOSE frame to server.")
 
 try:
     while True:
-        ready = select.select([sock], [], [], time_threshold)
+        ready = select.select([sock], [], [], TIME_THRESHOLD)
         if ready[0]:
-            data_recv, addr = sock.recvfrom(buffer_size)
+            data_recv, addr = sock.recvfrom(BUFFER_SIZE)
 
             # parse the received data
             parsed_packet = api.parse_quic_short_header_binary(data_recv)
@@ -301,18 +318,11 @@ end_time = datetime.timestamp(datetime.now())
 total_time = end_time - start_time
 print(f"Total time is: {total_time:.6f} seconds")
 
-# Open the text file in read mode
-with open('alphanumeric_file.txt', 'r') as file:
-    # Get the size of the file
-    file.seek(0, os.SEEK_END)
-    file_size = file.tell()
-    file.seek(0)
-
-print("File Size:", file_size, "bytes")
-bandwidth = file_size / total_time / 8 / 1024 / 1024
+print("File Size:", FILE_SIZE, "bytes")
+bandwidth = FILE_SIZE / total_time / 8 / 1024 / 1024
 print(f"Bandwidth: {bandwidth:.3f} MB/s\n")
 print(f"Unique packets: {total_packets}")
 print(f"Re-transmitted packets: {retransmit_counter}")
-print(f"Final packet number: {current_packet_number-1}")
+print(f"Final packet number: {current_packet_number - 1}")
 print(f"time retransmit counter: {time_retransmit_counter} ")
 print(f"packet number retransmit counter: {packet_number_retransmit_counter}")
