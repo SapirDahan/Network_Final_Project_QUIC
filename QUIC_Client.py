@@ -4,7 +4,6 @@ import os
 from collections import deque
 from datetime import datetime
 import QUIC_api as api
-import copy
 import argparse
 
 parser = argparse.ArgumentParser(
@@ -13,7 +12,7 @@ parser = argparse.ArgumentParser(
                 "need at least one active recovery algorithm")
 parser.add_argument("-t", "--time", type=float, default=0.1,
                     help="Value of time_threshold (default: 0.1). Enter 0 to turn off time based recovery.")
-parser.add_argument("-n", "--number", type=int, default=10,
+parser.add_argument("-n", "--number", type=int, default=7,
                     help="packet_reordering_threshold (default: 10). Enter 0 to turn off packet number based recovery.")
 args = parser.parse_args()
 
@@ -27,10 +26,10 @@ TIME_BASED = args.time != 0
 # Thresholds for recovery algorithms
 PACKET_REORDERING_THRESHOLD = args.number
 TIME_THRESHOLD = args.time
-if not PACKET_NUMBER_BASED:
-    PACKET_REORDERING_THRESHOLD = 10
-if not TIME_THRESHOLD:
-    TIME_THRESHOLD = 0.1
+# if not PACKET_NUMBER_BASED:
+#     PACKET_REORDERING_THRESHOLD = 7
+# if not TIME_THRESHOLD:
+#     TIME_THRESHOLD = 0.1
 PTO_TIMEOUT = 0.05
 
 # Client setup
@@ -55,149 +54,6 @@ start_time = datetime.timestamp(datetime.now())
 
 # Create UDP socket
 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-
-
-def time_based_recovery(packet_queue, last_ack_time):
-    global current_packet_number
-    # Make a deep copy for packet_queue
-    packet_queue_copy = copy.deepcopy(packet_queue)
-    counter = 0
-    for element in packet_queue_copy:
-        if last_ack_time - element[2] > TIME_THRESHOLD and not element[1]:
-            packet_queue.remove(element)
-
-            # Assign the packet a new packet number and append it to the queue
-            element[0] = current_packet_number
-            lost_packet = api.parse_quic_short_header_binary(element[3])
-            lost_packet['packet_number'] = current_packet_number
-            element[3] = api.construct_quic_short_header_binary(lost_packet["dcid"], lost_packet["packet_number"],
-                                                                lost_packet["payload"])
-            element[2] = datetime.timestamp(datetime.now())
-            packet_queue.append(element)
-
-            # Resend the packet
-            sock.sendto(element[3].encode(), (SERVER_IP, SERVER_PORT))
-            counter += 1
-            current_packet_number += 1
-    return counter
-
-
-def packet_number_based_recovery(packet_queue):
-    last_ack = 0
-    i = 0
-    #
-    for element in reversed(packet_queue):
-        if element[1]:
-            last_ack = len(packet_queue) - i - 1
-            break
-        i += 1
-
-    global current_packet_number
-    counter = 0
-    for i in range(0, last_ack - PACKET_REORDERING_THRESHOLD):
-        if packet_queue[0][1]:
-            packet_queue.popleft()
-        else:
-            # Update the lost packet in the queue
-            packet_queue[0][0] = current_packet_number
-            lost_packet = api.parse_quic_short_header_binary(packet_queue[0][3])
-            lost_packet['packet_number'] = current_packet_number
-            packet_queue[0][3] = api.construct_quic_short_header_binary(lost_packet["dcid"],
-                                                                        lost_packet["packet_number"],
-                                                                        lost_packet["payload"])
-            packet_queue[0][2] = datetime.timestamp(datetime.now())
-
-            # Append it to the queue and send it again
-            packet_queue.append(packet_queue[0])
-            sock.sendto(packet_queue[0][3].encode(), (SERVER_IP, SERVER_PORT))
-
-            counter += 1
-            current_packet_number += 1
-            packet_queue.popleft()
-    return counter
-
-
-def PTO_recovery(packet_queue):
-    global current_packet_number
-    # Make a deep copy for packet_queue
-    packet_queue_copy = copy.deepcopy(packet_queue)
-    counter = 0
-    for element in packet_queue_copy:
-        if datetime.now().timestamp() - element[2] > PTO_TIMEOUT and not element[1]:
-            packet_queue.remove(element)
-
-            element[0] = current_packet_number
-            lost_packet = api.parse_quic_short_header_binary(element[3])
-            lost_packet['packet_number'] = current_packet_number
-            element[3] = api.construct_quic_short_header_binary(lost_packet["dcid"], lost_packet["packet_number"],
-                                                                lost_packet["payload"])
-            element[2] = datetime.timestamp(datetime.now())
-
-            packet_queue.append(element)
-            sock.sendto(element[3].encode(), (SERVER_IP, SERVER_PORT))
-            counter += 1
-            current_packet_number += 1
-    return counter
-
-
-def receive_ACKs(packet_queue, tail):
-    global time_retransmit_counter
-    global packet_number_retransmit_counter
-    retransmit_counter = 0
-
-    last_ack_time = -1
-    if tail:
-        last_ack_time = datetime.timestamp(datetime.now())
-
-    # Try to receive ACKs
-    try:
-        while True:
-            ready = select.select([sock], [], [], 0)
-            if ready[0]:
-                ack, _ = sock.recvfrom(2048)
-                last_ack_time = datetime.timestamp(datetime.now())
-
-                # Avoid parsing short headers
-                if ack[0] == ord('0'):
-                    continue
-
-                ack_packet = api.parse_quic_ack_packet(ack)
-                ack_ranges = ack_packet['ack_ranges']
-                curr_block = 0
-                for element in packet_queue:
-                    if curr_block >= len(ack_ranges):
-                        break
-                    if ack_ranges[curr_block][0] <= element[0] <= ack_ranges[curr_block][1]:
-                        element[1] = True
-                    elif element[0] > ack_ranges[curr_block][1]:
-                        curr_block += 1
-
-            else:
-                # No more ACKs available, break from the loop
-                break
-
-    except BlockingIOError:
-        # No data available
-        pass
-
-    # Pop all True elements from the head of the deque until reaching false
-    while packet_queue and packet_queue[0][1]:
-        packet_queue.popleft()
-
-    if TIME_BASED:
-        count = time_based_recovery(packet_queue, last_ack_time)
-        retransmit_counter += count
-        time_retransmit_counter += count
-
-    if PACKET_NUMBER_BASED:
-        count = packet_number_based_recovery(packet_queue)
-        retransmit_counter += count
-        packet_number_retransmit_counter += count
-
-    if tail and len(packet_queue) <= max(PACKET_REORDERING_THRESHOLD, 10) * 2:  # PTO for tail packets
-        retransmit_counter += PTO_recovery(packet_queue)
-
-    return retransmit_counter
 
 
 # QUIC handshake
@@ -273,12 +129,18 @@ with open(FILE_PATH, 'rb') as f:
         # Update the current packet number
         current_packet_number += 1
 
-        retransmit_counter += receive_ACKs(packet_queue, False)
+        retrans_count,  time_count, number_count, new_packet_number = api.receive_ACKs(sock,(SERVER_IP,SERVER_PORT),packet_queue, False,current_packet_number, TIME_THRESHOLD, PACKET_REORDERING_THRESHOLD,PTO_TIMEOUT)
+        retransmit_counter += retrans_count
+        time_retransmit_counter += time_count
+        packet_number_retransmit_counter += number_count
+        current_packet_number = new_packet_number
 
-print(f"length of queue: {len(packet_queue)}")
 while len(packet_queue) > 0:
-    retransmit_counter += receive_ACKs(packet_queue, True)
-
+    retrans_count,  time_count, number_count, new_packet_number = api.receive_ACKs(sock, (SERVER_IP,SERVER_PORT),packet_queue, False,current_packet_number, TIME_THRESHOLD, PACKET_REORDERING_THRESHOLD,PTO_TIMEOUT)
+    retransmit_counter += retrans_count
+    time_retransmit_counter += time_count
+    packet_number_retransmit_counter += number_count
+    current_packet_number = new_packet_number
 print("File sent successfully.")
 
 api.send_connection_close_packet(socket=sock, streamID=0, dcid=SERVER_CID, packet_number=total_packets + 1,

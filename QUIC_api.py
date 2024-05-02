@@ -1,3 +1,7 @@
+from datetime import datetime
+import copy
+import select
+
 def construct_quic_long_header(packet_type, version, dcid_num, scid_num, payload):
     """
     Constructs a simplified QUIC long header from string inputs.
@@ -298,24 +302,24 @@ def send_hello_packet(socket, streamID, dcid, scid, side, address):
     """
 
     """
-    ---Construct ClientHello frame---
+    ---Construct Hello frame---
     frame type 6 is being used for handshake
     offset is 0
     """
     hello_frame = construct_quic_frame(6, streamID, 0, side + "Hello")
 
     """
-    ---Construct ClientHello packet---
+    ---Construct Hello packet---
     packet type is 0
     version is 1
-    payload is client_hello_frame
+    payload is hello_frame
     """
     hello_packet = construct_quic_long_header(0, 1, dcid, scid, hello_frame)
     socket.sendto(hello_packet.encode(), address)
 
 def send_connection_close_packet(socket, streamID, dcid, packet_number, address):
     """
-    Sends an hello packet with a single frame.
+    Sends an connection_close packet with a single frame.
 
     Parameters:
     - socket: The socket used for sending the packet.
@@ -337,3 +341,150 @@ def send_connection_close_packet(socket, streamID, dcid, packet_number, address)
     connection_close_packet = construct_quic_short_header_binary(dcid, packet_number, connection_close_frame)
 
     socket.sendto(connection_close_packet.encode(), address)
+
+
+def time_based_recovery(sock, address, packet_queue, last_ack_time, current_packet_number, time_threshold):
+    # Make a deep copy for packet_queue
+    packet_queue_copy = copy.deepcopy(packet_queue)
+    counter = 0
+    for element in packet_queue_copy:
+        if last_ack_time - element[2] > time_threshold and not element[1]:
+            packet_queue.remove(element)
+
+            # Assign the packet a new packet number and append it to the queue
+            element[0] = current_packet_number
+            lost_packet = parse_quic_short_header_binary(element[3])
+            lost_packet['packet_number'] = current_packet_number
+            element[3] = construct_quic_short_header_binary(lost_packet["dcid"], lost_packet["packet_number"],
+                                                                lost_packet["payload"])
+            element[2] = datetime.timestamp(datetime.now())
+            packet_queue.append(element)
+
+            # Resend the packet
+            sock.sendto(element[3].encode(), address)
+            counter += 1
+            current_packet_number += 1
+    return counter, current_packet_number
+
+
+def packet_number_based_recovery(sock, address, packet_queue,current_packet_number, packet_reoredering_threshold):
+    last_ack = 0
+    i = 0
+
+    for element in reversed(packet_queue):
+        if element[1]:
+            last_ack = len(packet_queue) - i - 1
+            break
+        i += 1
+
+    
+    counter = 0
+    for i in range(0, last_ack - packet_reoredering_threshold):
+        if packet_queue[0][1]:
+            packet_queue.popleft()
+        else:
+            # Update the lost packet in the queue
+            packet_queue[0][0] = current_packet_number
+            lost_packet = parse_quic_short_header_binary(packet_queue[0][3])
+            lost_packet['packet_number'] = current_packet_number
+            packet_queue[0][3] = construct_quic_short_header_binary(lost_packet["dcid"],
+                                                                        lost_packet["packet_number"],
+                                                                        lost_packet["payload"])
+            packet_queue[0][2] = datetime.timestamp(datetime.now())
+
+            # Append it to the queue and send it again
+            packet_queue.append(packet_queue[0])
+            sock.sendto(packet_queue[0][3].encode(), address)
+
+            counter += 1
+            current_packet_number += 1
+            packet_queue.popleft()
+    return counter, current_packet_number
+
+
+def PTO_recovery(sock, address, packet_queue, current_packet_number, PTO_TIMEOUT):
+    
+    # Make a deep copy for packet_queue
+    packet_queue_copy = copy.deepcopy(packet_queue)
+    counter = 0
+    for element in packet_queue_copy:
+        if datetime.now().timestamp() - element[2] > PTO_TIMEOUT and not element[1]:
+            packet_queue.remove(element)
+
+            element[0] = current_packet_number
+            lost_packet = parse_quic_short_header_binary(element[3])
+            lost_packet['packet_number'] = current_packet_number
+            element[3] = construct_quic_short_header_binary(lost_packet["dcid"], lost_packet["packet_number"],
+                                                                lost_packet["payload"])
+            element[2] = datetime.timestamp(datetime.now())
+
+            packet_queue.append(element)
+            sock.sendto(element[3].encode(), address)
+            counter += 1
+            current_packet_number += 1
+    return counter, current_packet_number
+
+
+def receive_ACKs(sock, address, packet_queue, tail, current_packet_number, TIME_THRESHOLD, PACKET_REORDERING_THRESHOLD, PTO_TIMEOUT):
+    time_retransmit_counter = 0
+    packet_number_retransmit_counter = 0
+    retransmit_counter = 0
+
+
+    last_ack_time = -1
+    if tail:
+        last_ack_time = datetime.timestamp(datetime.now())
+
+    # Try to receive ACKs
+    try:
+        while True:
+            ready = select.select([sock], [], [], 0)
+            if ready[0]:
+                ack, _ = sock.recvfrom(2048)
+                last_ack_time = datetime.timestamp(datetime.now())
+
+                # Avoid parsing short headers
+                if ack[0] == ord('0'):
+                    continue
+
+                ack_packet = parse_quic_ack_packet(ack)
+                ack_ranges = ack_packet['ack_ranges']
+                curr_block = 0
+                for element in packet_queue:
+                    if curr_block >= len(ack_ranges):
+                        break
+                    if ack_ranges[curr_block][0] <= element[0] <= ack_ranges[curr_block][1]:
+                        element[1] = True
+                    elif element[0] > ack_ranges[curr_block][1]:
+                        curr_block += 1
+
+            else:
+                # No more ACKs available, break from the loop
+                break
+
+    except BlockingIOError:
+        # No data available
+        pass
+
+    # Pop all True elements from the head of the deque until reaching false
+    while packet_queue and packet_queue[0][1]:
+        packet_queue.popleft()
+
+    if TIME_THRESHOLD:
+        count, packet_number = time_based_recovery(sock,address,packet_queue, last_ack_time,current_packet_number, TIME_THRESHOLD)
+        retransmit_counter += count
+        time_retransmit_counter += count
+        current_packet_number = packet_number
+
+    if PACKET_REORDERING_THRESHOLD:
+        count, packet_number = packet_number_based_recovery(sock,address,packet_queue,current_packet_number, PACKET_REORDERING_THRESHOLD)
+        retransmit_counter += count
+        packet_number_retransmit_counter += count
+        current_packet_number = packet_number
+
+    if tail and len(packet_queue) <= max(PACKET_REORDERING_THRESHOLD, 10) * 2:  # PTO for tail packets
+        count, packet_number = PTO_recovery(sock,address,packet_queue,current_packet_number,PTO_TIMEOUT)
+        retransmit_counter += count
+        current_packet_number = packet_number
+
+    return retransmit_counter,  time_retransmit_counter, packet_number_retransmit_counter, current_packet_number
