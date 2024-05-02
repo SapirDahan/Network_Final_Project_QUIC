@@ -136,7 +136,7 @@ with open(FILE_PATH, 'rb') as f:
         current_packet_number = new_packet_number
 
 while len(packet_queue) > 0:
-    retrans_count,  time_count, number_count, new_packet_number = api.receive_ACKs(sock, (SERVER_IP,SERVER_PORT),packet_queue, False,current_packet_number, TIME_THRESHOLD, PACKET_REORDERING_THRESHOLD,PTO_TIMEOUT)
+    retrans_count,  time_count, number_count, new_packet_number = api.receive_ACKs(sock, (SERVER_IP,SERVER_PORT),packet_queue, True,current_packet_number, TIME_THRESHOLD, PACKET_REORDERING_THRESHOLD,PTO_TIMEOUT)
     retransmit_counter += retrans_count
     time_retransmit_counter += time_count
     packet_number_retransmit_counter += number_count

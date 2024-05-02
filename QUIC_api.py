@@ -482,7 +482,7 @@ def receive_ACKs(sock, address, packet_queue, tail, current_packet_number, TIME_
         packet_number_retransmit_counter += count
         current_packet_number = packet_number
 
-    if tail and len(packet_queue) <= max(PACKET_REORDERING_THRESHOLD, 10) * 2:  # PTO for tail packets
+    if tail:  # PTO for tail packets
         count, packet_number = PTO_recovery(sock,address,packet_queue,current_packet_number,PTO_TIMEOUT)
         retransmit_counter += count
         current_packet_number = packet_number
