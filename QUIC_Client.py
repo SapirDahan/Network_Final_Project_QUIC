@@ -26,15 +26,13 @@ TIME_BASED = args.time != 0
 # Thresholds for recovery algorithms
 PACKET_REORDERING_THRESHOLD = args.number
 TIME_THRESHOLD = args.time
-# if not PACKET_NUMBER_BASED:
-#     PACKET_REORDERING_THRESHOLD = 7
-# if not TIME_THRESHOLD:
-#     TIME_THRESHOLD = 0.1
-PTO_TIMEOUT = 0.05
+PTO_TIMEOUT = 0.2
+THRESHOLDS = (PACKET_REORDERING_THRESHOLD, TIME_THRESHOLD, PTO_TIMEOUT)
 
 # Client setup
 SERVER_IP = '127.0.0.1'
 SERVER_PORT = 9997
+SERVER_ADDRESS = (SERVER_IP, SERVER_PORT)
 BUFFER_SIZE = 1827  # 2048 - 221: packet size minus header size
 
 # CIDs
@@ -59,11 +57,11 @@ sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 # QUIC handshake
 
 api.send_hello_packet(socket=sock, streamID=0, dcid=SERVER_CID, scid=CLIENT_CID, side='Client',
-                      address=(SERVER_IP, SERVER_PORT))
+                      address=SERVER_ADDRESS)
 print("Sent ClientHello.")
 
 # Set time out for server hello packet
-sock.settimeout(TIME_THRESHOLD)
+sock.settimeout(0.005)
 
 while True:
 
@@ -72,7 +70,7 @@ while True:
     except socket.timeout:  # On timeout, resend the handshake packet
         print("ServerHello timeout.")
         api.send_hello_packet(socket=sock, streamID=0, dcid=SERVER_CID, scid=CLIENT_CID, side='Client',
-                              address=(SERVER_IP, SERVER_PORT))
+                              address=SERVER_ADDRESS)
         retransmit_counter += 1
         print("Sent ClientHello.")
         continue
@@ -124,19 +122,19 @@ with open(FILE_PATH, 'rb') as f:
         packet_queue.append([current_packet_number, False, datetime.timestamp(datetime.now()), packet])
 
         # Send packet
-        sock.sendto(packet.encode(), (SERVER_IP, SERVER_PORT))
+        sock.sendto(packet.encode(), SERVER_ADDRESS)
 
         # Update the current packet number
         current_packet_number += 1
 
-        retrans_count,  time_count, number_count, new_packet_number = api.receive_ACKs(sock,(SERVER_IP,SERVER_PORT),packet_queue, False,current_packet_number, TIME_THRESHOLD, PACKET_REORDERING_THRESHOLD,PTO_TIMEOUT)
+        retrans_count,  time_count, number_count, new_packet_number = api.receive_ACKs(sock,SERVER_ADDRESS,packet_queue, False,current_packet_number, *THRESHOLDS)
         retransmit_counter += retrans_count
         time_retransmit_counter += time_count
         packet_number_retransmit_counter += number_count
         current_packet_number = new_packet_number
 
 while len(packet_queue) > 0:
-    retrans_count,  time_count, number_count, new_packet_number = api.receive_ACKs(sock, (SERVER_IP,SERVER_PORT),packet_queue, True,current_packet_number, TIME_THRESHOLD, PACKET_REORDERING_THRESHOLD,PTO_TIMEOUT)
+    retrans_count,  time_count, number_count, new_packet_number = api.receive_ACKs(sock,SERVER_ADDRESS,packet_queue, True,current_packet_number, *THRESHOLDS)
     retransmit_counter += retrans_count
     time_retransmit_counter += time_count
     packet_number_retransmit_counter += number_count
@@ -144,7 +142,7 @@ while len(packet_queue) > 0:
 print("File sent successfully.")
 
 api.send_connection_close_packet(socket=sock, streamID=0, dcid=SERVER_CID, packet_number=total_packets + 1,
-                                 address=(SERVER_IP, SERVER_PORT))
+                                 address=SERVER_ADDRESS)
 
 print("Sending CONNECTION_CLOSE frame to server.")
 
@@ -186,5 +184,5 @@ print(f"Bandwidth: {bandwidth:.3f} MB/s\n")
 print(f"Unique packets: {total_packets}")
 print(f"Re-transmitted packets: {retransmit_counter}")
 print(f"Final packet number: {current_packet_number - 1}")
-print(f"time retransmit counter: {time_retransmit_counter} ")
-print(f"packet number retransmit counter: {packet_number_retransmit_counter}")
+print(f"Time retransmit counter: {time_retransmit_counter} ")
+print(f"Packet number retransmit counter: {packet_number_retransmit_counter}")

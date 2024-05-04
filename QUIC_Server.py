@@ -77,6 +77,7 @@ TIMEOUT = 10
 timeout_flag = False
 # Set time out for the server socket. If no packet received in "timeout" seconds then we close the connection
 sock.settimeout(TIMEOUT)
+frames = []
 
 while True:
     # Receive packet
@@ -99,6 +100,8 @@ while True:
     packet_payload = packet_parsed['payload']
     frame_parsed = api.parse_quic_frame(packet_payload)
     frame_data = frame_parsed['data']
+    if frame_parsed['offset'] not in frames:
+        frames.append(frame_parsed['offset'])
 
     if frame_parsed['frame_type'] == 0x1c:
         print("File received successfully.")
@@ -121,6 +124,9 @@ while True:
                 # Parse the packet to receive data
                 packet_parsed = api.parse_quic_short_header_binary(packet)
                 packet_number = packet_parsed['packet_number']
+                frame_parsed = api.parse_quic_frame(packet_parsed['payload'])
+                if frame_parsed['offset'] not in frames:
+                    frames.append(frame_parsed['offset'])
 
                 if packet_number not in packets_received:
                     packets_received.append(packet_number)
@@ -153,6 +159,7 @@ if not timeout_flag:
 
 # Generate statistics
 print(f"Sent {ack_packet_number - 1} ack packets to client.")
+print(f"Received {len(frames)} frames")
 
 sock.close()
 
