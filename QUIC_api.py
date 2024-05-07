@@ -2,6 +2,10 @@ from datetime import datetime
 import copy
 import select
 
+
+SHORT_HEADER_BIT = '0'
+LONG_HEADER_BIT = '1'
+
 def construct_quic_long_header(packet_type, version, dcid_num, scid_num, payload):
     """
     Constructs a simplified QUIC long header from string inputs.
@@ -17,7 +21,7 @@ def construct_quic_long_header(packet_type, version, dcid_num, scid_num, payload
     """
     # Header Form (1 bit) + Fixed Bit (1 bit) + Long Packet Type (2 bits) + Reserved Bits (2 bits) + Packet Number Length (2 bits)
     # Here, we use a simple string representation for these fields.
-    header_bits = '1' + '1' + format(packet_type, '02b') + '00' + '11'
+    header_bits = LONG_HEADER_BIT + '1' + format(packet_type, '02b') + '00' + '11'
 
     # Version (32 bits)
     version_str = format(version, '032b')
@@ -83,7 +87,7 @@ def construct_quic_short_header_binary(dcid, packet_number, payload):
 
     # Header Form (0 for short header) and Key Phase Bit (assuming 0), both in binary
     # Note: In an actual implementation, these would be part of a single byte with other flags
-    header_form = '0'  # 1 bit
+    header_form = SHORT_HEADER_BIT  # 1 bit
     key_phase_bit = '0'  # 1 bit
 
     # Convert dcid and packet_number to binary strings
@@ -221,7 +225,7 @@ def construct_quic_ack_packet(dcid, packet_number, ack_delay, ack_ranges):
 
     # Header Form (1 for long header) and Key Phase Bit (assuming 0), both in binary
     # Note: In an actual implementation, these would be part of a single byte with other flags
-    header_form = '1'  # 1 bit
+    header_form = LONG_HEADER_BIT  # 1 bit
     key_phase_bit = '0'  # 1 bit
 
     # Convert dcid and packet_number to binary strings
@@ -344,6 +348,18 @@ def send_connection_close_packet(socket, streamID, dcid, packet_number, address)
 
 
 def time_based_recovery(sock, address, packet_queue, last_ack_time, current_packet_number, time_threshold):
+    """
+    Detects packet losses using the time threshold. Any packet that was sent more than TIME_THRESHOLD seconds before
+    the last ack was received (and isn't ACKed yet) will be declared as lost and sent again.
+
+    :param sock: The socket
+    :param address: Server address
+    :param packet_queue: The packet queue
+    :param last_ack_time: The time of the last ack that has been received
+    :param current_packet_number:
+    :param time_threshold:
+    :return: (number of retransmissions ,new current packet number)
+    """
     # Make a deep copy for packet_queue
     packet_queue_copy = copy.deepcopy(packet_queue)
     counter = 0
@@ -368,6 +384,17 @@ def time_based_recovery(sock, address, packet_queue, last_ack_time, current_pack
 
 
 def packet_number_based_recovery(sock, address, packet_queue,current_packet_number, packet_reoredering_threshold):
+    """
+    Detects packet losses using the packet threshold. Any packet that has a smaller packet number than the latest ACKed
+    packet minus the PACKET_REORDERING_THRESHOLD will be declared as lost and sent again.
+
+    :param sock: The socket
+    :param address: Server address
+    :param packet_queue: The packet queue
+    :param current_packet_number:
+    :param packet_reoredering_threshold:
+    :return: (number of retransmissions ,new current packet number)
+    """
     last_ack = 0
     i = 0
 
@@ -403,6 +430,17 @@ def packet_number_based_recovery(sock, address, packet_queue,current_packet_numb
 
 
 def PTO_recovery(sock, address, packet_queue, current_packet_number, PTO_TIMEOUT):
+    """
+    Detects packet losses using the timeout for the tail packets. Any packet that was sent more than PTO_TIMEOUT
+    seconds ago will be declared as lost and sent again.
+
+    :param sock: The socket
+    :param address: Server address
+    :param packet_queue: The packet queue
+    :param current_packet_number:
+    :param PTO_TIMEOUT:
+    :return: (number of retransmissions ,new current packet number)
+    """
     
     # Make a deep copy for packet_queue
     packet_queue_copy = copy.deepcopy(packet_queue)
@@ -425,7 +463,21 @@ def PTO_recovery(sock, address, packet_queue, current_packet_number, PTO_TIMEOUT
     return counter, current_packet_number
 
 
-def receive_ACKs(sock, address, packet_queue, tail, current_packet_number, TIME_THRESHOLD, PACKET_REORDERING_THRESHOLD, PTO_TIMEOUT):
+def receive_ACKs(sock, address, packet_queue, tail, current_packet_number, PACKET_REORDERING_THRESHOLD, TIME_THRESHOLD, PTO_TIMEOUT):
+    """
+
+
+    :param sock: The socket
+    :param address: Server address
+    :param packet_queue: The packet queue
+    :param tail: true if we're receiving ACKs for tail packets
+    :param current_packet_number:
+    :param PACKET_REORDERING_THRESHOLD:
+    :param TIME_THRESHOLD:
+    :param PTO_TIMEOUT:
+    :return: (number of retransmissions, number of retransmissions by time, number of retransmissions by packet number,
+    new current packet number)
+    """
     time_retransmit_counter = 0
     packet_number_retransmit_counter = 0
     retransmit_counter = 0
@@ -444,7 +496,7 @@ def receive_ACKs(sock, address, packet_queue, tail, current_packet_number, TIME_
                 last_ack_time = datetime.timestamp(datetime.now())
 
                 # Avoid parsing short headers
-                if ack[0] == ord('0'):
+                if ack[0] == ord(SHORT_HEADER_BIT):
                     continue
 
                 ack_packet = parse_quic_ack_packet(ack)

@@ -34,7 +34,7 @@ while True:
         continue
 
     # Checking if short header (not handshake packet) due to client hello packet loss
-    if data_recv[0] == ord('0'):
+    if data_recv[0] == ord(api.SHORT_HEADER_BIT):
         if CLIENT_CID is None:
             raise Exception("Client attempted to send packets before connection was established")
         first_received = True
@@ -57,7 +57,7 @@ while True:
                 data_recv, addr = sock.recvfrom(BUFFER_SIZE)
 
                 # Checking if the received packet is ClientHello
-                if data_recv[0] == ord('0'):
+                if data_recv[0] == ord(api.SHORT_HEADER_BIT):
                     first_received = True
                     sock.settimeout(None)
                     break
