@@ -1,18 +1,17 @@
 Sent ClientHello.
 Received ServerHello.
 Handshake Completed.
-/home/adipassover/Desktop/Network_Final_Project/alphanumeric_file.txt
 File sent successfully.
 Sending CONNECTION_CLOSE frame to server.
 Received CONNECTION_CLOSE from the server.
 Connection closed.
 
-Total time is: 0.852687 seconds
+Total time is: 0.901801 seconds
 File Size: 10485760 bytes
-Bandwidth: 1.466 MB/s
+Bandwidth: 1.386 MB/s
 
 Unique packets: 5740
 Re-transmitted packets: 0
 Final packet number: 5739
-time retransmit counter: 0 
-packet number retransmit counter: 0
+Time retransmit counter: 0 
+Packet number retransmit counter: 0

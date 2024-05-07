@@ -1,6 +1,11 @@
 import socket
 from datetime import datetime, timedelta
 import QUIC_api as api
+import argparse
+
+parser = argparse.ArgumentParser()
+parser.add_argument("-d", "--delay", type=int, default=20, help="The maximum time a receiver might delay sending an ACK")
+args = parser.parse_args()
 
 # Server setup
 SERVER_IP = '127.0.0.1'
@@ -15,7 +20,7 @@ CLIENT_CID = None  # receive client_CID at handshake
 RETRANSMISSION_TIMEOUT = 0.01
 
 # The maximum time a receiver might delay sending an ACK
-ACK_DELAY = 20  # in ms
+ACK_DELAY = args.delay  # in ms
 
 # Create UDP socket
 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)

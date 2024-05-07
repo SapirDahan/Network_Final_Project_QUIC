@@ -88,7 +88,6 @@ while True:
 sock.settimeout(None)
 
 FILE_PATH = os.path.abspath(os.path.dirname(__file__))+"/alphanumeric_file.txt"
-print(FILE_PATH)
 # Open the text file in read mode
 with open(FILE_PATH, 'r') as file:
     # Get the size of the file

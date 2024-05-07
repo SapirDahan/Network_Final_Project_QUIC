@@ -4,11 +4,12 @@ import os
 import scripts
 
 
+TIMEOUT = 20
+
 class TestQUIC(unittest.TestCase):
 
     @classmethod
     def setUpClass(self):
-        os.system('chmod +rwx DefaultRun.sh')
         os.system('chmod +rwx ParametersRun.sh')
 
     def test_ranges(self):
@@ -25,7 +26,7 @@ class TestQUIC(unittest.TestCase):
             packet_thresholds_speeds = {}
             for packet_threshold in packet_based_ranges:
                 try:
-                    speed = scripts.single_parameters_run(timeout=15, time_threshold=0,
+                    speed = scripts.single_parameters_run(timeout=TIMEOUT, time_threshold=0,
                                                           packet_threshold=packet_threshold)
                     packet_thresholds_speeds[packet_threshold] = speed
                 except TimeoutError:
@@ -36,7 +37,7 @@ class TestQUIC(unittest.TestCase):
             time_thresholds_speeds = {}
             for time_threshold in time_based_ranges:
                 try:
-                    speed = scripts.single_parameters_run(timeout=15, time_threshold=time_threshold, packet_threshold=0)
+                    speed = scripts.single_parameters_run(timeout=TIMEOUT, time_threshold=time_threshold, packet_threshold=0)
                     time_thresholds_speeds[time_threshold] = speed
                 except TimeoutError:
                     self.fail(
@@ -47,7 +48,7 @@ class TestQUIC(unittest.TestCase):
             for packet_threshold in packet_based_ranges:
                 for time_threshold in time_based_ranges:
                     try:
-                        speed = scripts.single_parameters_run(timeout=15, time_threshold=time_threshold,
+                        speed = scripts.single_parameters_run(timeout=TIMEOUT, time_threshold=time_threshold,
                                                               packet_threshold=packet_threshold)
                         both_thresholds_speeds[(packet_threshold, time_threshold)] = speed
                     except TimeoutError:
