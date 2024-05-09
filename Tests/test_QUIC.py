@@ -12,13 +12,18 @@ sys.path.append("/Tests")
 TIMEOUT = 20
 
 class TestQUIC(unittest.TestCase):
-    
+    """
+    This class method sets up the necessary permissions for the shell scripts used in the test cases.
+    """
     @classmethod
     def setUpClass(self):
         os.system('chmod +rwx DefaultRun.sh')
         os.system('chmod +rwx ParametersRun.sh')
         os.system('chmod +rwx TestRun.sh')
-    
+
+    """
+       Test function for the frame API to validate reading and writing operations of the server.
+    """
     def test_frame_api(self):
         for iter in range(10):
             frame_type = random.randint(0,120)
@@ -35,7 +40,11 @@ class TestQUIC(unittest.TestCase):
             self.assertEqual(parsed_frame["data"], data)
         print('passed frame test')
 
-    
+
+    """
+    Test function for the short header API to validate construction and parsing of short header packets.
+
+    """
     def test_short_header_api(self):
         for iter in range(10):
             dcid = random.randint(0,5000)
@@ -50,6 +59,12 @@ class TestQUIC(unittest.TestCase):
             self.assertEqual(parsed_packet["packet_number"], packet_number)
             self.assertEqual(parsed_packet["payload"], payload)
         print('passed short header test')
+
+
+    """
+       Similar to the previous test,but this test function for the long header API to validate construction and parsing 
+       of long header packets.
+    """
 
     def test_long_header_api(self):
         for iter in range(10):
@@ -69,6 +84,13 @@ class TestQUIC(unittest.TestCase):
             self.assertEqual(parsed_packet['payload'], payload)
         print('passed long header test')
 
+    """
+        Validate construction and parsing of QUIC ACK packets.
+
+        This function tests the construction and parsing functionality of QUIC ACK packets by creating
+        random acknowledgment packets with varying parameters.
+  
+"""
     def test_QUIC_ACK_api(self):
         for iter in range(10):
             dcid = random.randint(0, 200)
@@ -87,12 +109,24 @@ class TestQUIC(unittest.TestCase):
             self.assertListEqual(parsed_packet["ack_ranges"], ack_ranges)
         print('passed ACK packet test')
 
-    
+    """
+       This function runs a single default test using the `single_default_run` function from the 'scripts' module.
+       It sets a timeout for the test execution and verifies that the test completes within the specified time limit.
+       If the test execution exceeds the timeout, it fails the test with a timeout error.
+
+    """
     def test_single_run(self):
         try:
             scripts.single_default_run(TIMEOUT)
         except TimeoutError:
             self.fail("Test execution timed out")
+
+    """
+       This function conducts multiple test runs with different levels of packet loss using the 'scripts' module.
+       It iterates over a list of packet loss percentages, applies each packet loss configuration to the loopback interface,
+       runs a default test with the specified packet loss, and prints the resulting speed.
+       If any test execution exceeds the timeout, it fails the test with a timeout error.
+       """
 
     def test_multiple_runs_packet_loss(self):
         packet_losses = [0,0.1,1,5,10,30]
@@ -108,7 +142,15 @@ class TestQUIC(unittest.TestCase):
                 self.fail(f"Test execution timed out for packet loss {packet_loss}")
 
         os.system("sudo tc qdisc del dev lo root netem")
-    
+
+
+    """
+       This function conducts single recovery tests with different levels of packet loss using the 'scripts' module.
+       It iterates over a list of packet loss percentages, applies each packet loss configuration to the loopback interface,
+       runs a recovery test with the specified packet loss (one with time only and one with packet only),
+       and prints the resulting speeds.
+       If any test execution exceeds the timeout, it fails the test with a timeout error.
+       """
     def test_single_recovery(self):
         packet_losses = [0,0.1,1,5,10,30]
         os.system("sudo tc qdisc add dev lo root netem loss 0%")
@@ -129,6 +171,13 @@ class TestQUIC(unittest.TestCase):
 
         os.system("sudo tc qdisc del dev lo root netem")
 
+
+    """
+       This function conducts tests with different acknowledgment delay values using the 'scripts' module.
+       It iterates over a list of acknowledgment delay values, applies a fixed packet loss configuration to the
+       loopback interface, runs a test with the specified acknowledgment delay, and prints the resulting speeds.
+       If any test execution exceeds the timeout, it fails the test with a timeout error.
+       """
     def test_ack_delays(self):
         ack_delays = [0,5,20,50,100,200]
         os.system("sudo tc qdisc add dev lo root netem loss 5%")
