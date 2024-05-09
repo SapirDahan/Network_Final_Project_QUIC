@@ -61,7 +61,8 @@ api.send_hello_packet(socket=sock, streamID=0, dcid=SERVER_CID, scid=CLIENT_CID,
 print("Sent ClientHello.")
 
 # Set time out for server hello packet
-sock.settimeout(0.005)
+HANDSHAKE_TIMEOUT = 0.005
+sock.settimeout(HANDSHAKE_TIMEOUT)
 
 while True:
 
