@@ -13,7 +13,7 @@ parser = argparse.ArgumentParser(
 parser.add_argument("-t", "--time", type=float, default=0.1,
                     help="Value of time_threshold (default: 0.1). Enter 0 to turn off time based recovery.")
 parser.add_argument("-n", "--number", type=int, default=7,
-                    help="packet_reordering_threshold (default: 10). Enter 0 to turn off packet number based recovery.")
+                    help="packet_reordering_threshold (default: 7). Enter 0 to turn off packet number based recovery.")
 args = parser.parse_args()
 
 if args.time == 0 and args.number == 0:
