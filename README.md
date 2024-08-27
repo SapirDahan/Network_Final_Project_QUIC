@@ -1,15 +1,12 @@
+# Project: QUIC-Based Data Transmission System
 
-# README
-
-## Project: QUIC-Based Data Transmission System
-
-### Overview
+## Overview
 
 This project implements a **QUIC (Quick UDP Internet Connections)**-based data transmission system with a focus on fast and reliable data transfer between a client and server. **QUIC** is a transport layer network protocol that improves upon **TCP** by reducing latency, supporting multiplexed connections, and integrating encryption (TLS) by default.
 
 The system features a **client-server architecture**, where the QUIC protocol is used to manage secure and efficient communication. While a file generator is included to produce large test files for transmission, the core focus of the project is the QUIC implementation.
 
-### Components
+## Components
 
 1. **QUIC_Server.py**: 
    - Implements the server-side of the QUIC protocol.
@@ -29,7 +26,7 @@ The system features a **client-server architecture**, where the QUIC protocol is
    - Generates large files for testing the transmission capabilities of the QUIC system.
    - This utility is primarily for creating initial test cases and does not contribute to the core system's functionality.
 
-### Why QUIC?
+## Why QUIC?
 
 QUIC is a transport protocol designed for speed, security, and efficiency, providing:
 
@@ -39,7 +36,7 @@ QUIC is a transport protocol designed for speed, security, and efficiency, provi
 
 This project demonstrates these advantages by implementing a basic but functional system using QUIC for file and data transmission.
 
-### Requirements
+## Requirements
 
 - Python 3.x
 - Required libraries:
@@ -54,7 +51,7 @@ Install the dependencies using:
 pip install aioquic fastapi uvicorn pytest
 ```
 
-### Project Architecture
+## Project Architecture
 
 ```
 +------------------+                     +------------------+
@@ -67,7 +64,7 @@ pip install aioquic fastapi uvicorn pytest
 - **QUIC Client**: Initiates the connection, sending data or files to the server. The payload can be customized as needed.
 - **API (Optional)**: Provides a RESTful interface for triggering file transmission, but the main functionality lies within the QUIC client-server interaction.
 
-### Setup and Running
+## Setup and Running
 
 1. **Start the QUIC Server**:
    Run the server to listen for incoming QUIC connections:
@@ -94,24 +91,24 @@ pip install aioquic fastapi uvicorn pytest
 
    This starts a FastAPI server at `http://localhost:8000/` to manage file transmissions via RESTful endpoints.
 
-### Running Tests
+## Running Tests
 
 Run the tests to ensure the QUIC implementation and API function as expected:
 
 
-### Example Workflow
+## Example Workflow
 
 1. Run the **QUIC server** (`python QUIC_Server.py`).
 2. Initiate a **QUIC client** to connect to the server and transmit data (`python QUIC_Client.py`).
 3. Optionally interact with the **FastAPI API** to trigger data transmissions and manage files.
 
-### Future Enhancements
+## Future Enhancements
 
 1. **Extend Client-Server Functionality**: Add more comprehensive data handling features such as file splitting and parallel transmissions.
 2. **Security Improvements**: While QUIC already includes TLS, additional security layers like custom encryption for sensitive data could be explored.
 3. **Performance Optimization**: Measure and optimize the performance of the QUIC client-server interaction for different file sizes and transmission conditions.
 
-### File Structure
+## File Structure
 
 ```
 - QUIC_Server.py        # QUIC server-side implementation
